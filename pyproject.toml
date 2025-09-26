@@ -65,6 +65,7 @@ producer = [
 ]
 
 consumer = [
+    "apache-flink==1.18.0",
     "confluent-kafka==2.11.1",
     "clickhouse-connect==0.6.21",
     "pandas==2.2.3",
