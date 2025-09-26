@@ -84,8 +84,8 @@ Documentation = "https://github.com/yourusername/RealTime-ECommerce-Analytics-Fl
 producer = "services.producer.src.main:main"
 consumer = "services.consumer.src.main:main"
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=7.0.0",
     "pytest-cov>=4.0.0",
     "black>=23.0.0",

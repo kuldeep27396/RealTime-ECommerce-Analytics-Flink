@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, validator
-from pydantic.types import DateTime, String, Float32, UInt16, UInt8, LowCardinality
+from pydantic.types import DateTime, Float32, LowCardinality, String, UInt8, UInt16
 
 
 class EventType(str, Enum):
