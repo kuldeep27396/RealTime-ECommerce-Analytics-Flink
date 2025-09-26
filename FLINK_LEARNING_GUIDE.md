@@ -91,59 +91,101 @@ graph TB
 
 ### Core Components
 
-#### 1. DataStream API
-```java
-// Java example
-DataStream<Event> events = env
-    .addSource(new FlinkKafkaConsumer<>(
-        "events-topic",
-        new EventDeserializer(),
-        properties
-    ))
-    .keyBy(Event::getUserId)
-    .window(TumblingEventTimeWindows.of(Time.minutes(5)))
-    .process(new EventProcessor());
-```
+#### 1. DataStream API (Python)
+```python
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.connectors import FlinkKafkaConsumer
+from pyflink.datastream.windowing import Time, TumblingEventTimeWindows
+from pyflink.common.watermarks import WatermarkStrategy
+from pyflink.common.serialization import SimpleStringSchema
 
-#### 2. Table API & SQL
-```java
-// Table API
-Table events = tableEnv.fromDataStream(eventsStream);
-Table result = events
-    .filter($("eventType").isEqual("purchase"))
-    .groupBy($("userId"))
-    .select($("userId"), $("amount").sum().as("totalSpent"));
+env = StreamExecutionEnvironment.get_execution_environment()
 
-// SQL
-tableEnv.createTemporaryView("events", eventsStream);
-Table sqlResult = tableEnv.sqlQuery(
-    "SELECT userId, SUM(amount) as totalSpent " +
-    "FROM events " +
-    "WHERE eventType = 'purchase' " +
-    "GROUP BY userId"
-);
-```
-
-#### 3. Stateful Functions
-```java
-public class EventProcessor extends KeyedProcessFunction<String, Event, Result> {
-    private ValueState<Integer> eventCount;
-
-    @Override
-    public void open(Configuration parameters) {
-        ValueStateDescriptor<Integer> descriptor =
-            new ValueStateDescriptor<>("eventCount", Integer.class);
-        eventCount = getRuntimeContext().getState(descriptor);
-    }
-
-    @Override
-    public void processElement(Event event, Context ctx, Collector<Result> out) {
-        Integer count = eventCount.value() == null ? 0 : eventCount.value();
-        count++;
-        eventCount.update(count);
-        out.collect(new Result(event.getUserId(), count));
-    }
+# Kafka source
+properties = {
+    'bootstrap.servers': 'localhost:9092',
+    'group.id': 'python-consumer'
 }
+
+kafka_source = FlinkKafkaConsumer(
+    topics='events-topic',
+    value_serializer=SimpleStringSchema(),
+    properties=properties
+)
+
+# Create datastream
+events = env.add_source(kafka_source)
+    .assign_timestamps_and_watermarks(
+        WatermarkStrategy.for_bounded_out_of_orderness(
+            duration=5000  # 5 seconds
+        )
+    )
+    .key_by(lambda event: event['user_id'])
+    .window(TumblingEventTimeWindows.of(Time.minutes(5)))
+    .process(EventProcessor())
+```
+
+#### 2. Table API & SQL (Python)
+```python
+from pyflink.table import StreamTableEnvironment
+from pyflink.table.expressions import col, lit
+
+# Create table environment
+table_env = StreamTableEnvironment.create(env)
+
+# Convert DataStream to Table
+events_table = table_env.from_data_stream(events_stream)
+
+# Table API operations
+result = events_table.filter(
+    col('event_type') == lit('purchase')
+).group_by(
+    col('user_id')
+).select(
+    col('user_id'),
+    col('amount').sum.alias('total_spent')
+)
+
+# SQL operations
+table_env.create_temporary_view('events', events_stream)
+sql_result = table_env.sql_query("""
+    SELECT
+        user_id,
+        SUM(amount) as total_spent
+    FROM events
+    WHERE event_type = 'purchase'
+    GROUP BY user_id
+""")
+```
+
+#### 3. Simple Processing Functions (Python)
+```python
+from pyflink.datastream.functions import KeyedProcessFunction, RuntimeContext
+from pyflink.common.state import ValueState, ValueStateDescriptor
+
+class EventProcessor(KeyedProcessFunction):
+    def __init__(self):
+        self.event_count = None
+
+    def open(self, runtime_context: RuntimeContext):
+        # Initialize state
+        descriptor = ValueStateDescriptor('event_count', int)
+        self.event_count = runtime_context.get_state(descriptor)
+
+    def process_element(self, event, ctx, collector):
+        # Get current count or initialize to 0
+        count = self.event_count.value() or 0
+        count += 1
+
+        # Update state
+        self.event_count.update(count)
+
+        # Collect result
+        collector.collect({
+            'user_id': event['user_id'],
+            'event_count': count,
+            'timestamp': event['timestamp']
+        })
 ```
 
 ---
@@ -152,99 +194,205 @@ public class EventProcessor extends KeyedProcessFunction<String, Event, Result> 
 
 ### 1. Kafka Integration
 
-#### Basic Kafka Consumer
-```java
-FlinkKafkaConsumer<Event> kafkaSource = new FlinkKafkaConsumer<>(
-    "clickstream-events",
-    new EventDeserializer(),
-    properties
-);
+#### Basic Kafka Consumer (Python)
+```python
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.connectors import FlinkKafkaConsumer
+from pyflink.common.serialization import SimpleStringSchema, JsonRowDeserializationSchema
+from pyflink.common.watermarks import WatermarkStrategy
+from pyflink.common.typeinfo import Types
+import json
 
-// Start from latest offset
-kafkaSource.setStartFromLatest();
+env = StreamExecutionEnvironment.get_execution_environment()
 
-// Start from earliest offset
-kafkaSource.setStartFromEarliest();
+# Kafka configuration
+properties = {
+    'bootstrap.servers': 'localhost:9092',
+    'group.id': 'flink-consumer-group',
+    'auto.offset.reset': 'latest',
+    'enable.auto.commit': 'false'
+}
 
-// Start from specific timestamp
-kafkaSource.setStartFromTimestamp(1633027200000L);
+# Define event schema
+schema = Types.ROW_NAMED(
+    ['user_id', 'event_type', 'timestamp', 'amount'],
+    [Types.STRING(), Types.STRING(), Types.INT(), Types.DOUBLE()]
+)
 
-// Assign watermarks for event time
-DataStream<Event> events = env
-    .addSource(kafkaSource)
-    .assignTimestampsAndWatermarks(
-        WatermarkStrategy.<Event>forBoundedOutOfOrderness(Duration.ofSeconds(5))
-            .withTimestampAssigner((event, timestamp) -> event.getTimestamp())
-    );
+# Create Kafka consumer
+kafka_consumer = FlinkKafkaConsumer(
+    topics='clickstream-events',
+    deserialization_schema=JsonRowDeserializationSchema(schema),
+    properties=properties
+)
+
+# Set starting offset
+kafka_consumer.set_start_from_latest()  # or set_start_from_earliest()
+
+# Create datastream with watermarks
+events = env.add_source(kafka_consumer)
+    .assign_timestamps_and_watermarks(
+        WatermarkStrategy.for_bounded_out_of_orderness(
+            duration=5000  # 5 seconds
+        ).with_timestamp_assigner(lambda event, timestamp: event['timestamp'])
+    )
 ```
 
-#### Advanced Kafka Configuration
-```java
-Properties properties = new Properties();
-properties.setProperty("bootstrap.servers", "localhost:9092");
-properties.setProperty("group.id", "flink-consumer-group");
-properties.setProperty("auto.offset.reset", "latest");
-properties.setProperty("enable.auto.commit", "false");
-properties.setProperty("isolation.level", "read_committed");
+#### Advanced Kafka Configuration (Python)
+```python
+# Enable exactly-once semantics
+env.enable_checkpointing(60000)  # Checkpoint every 60 seconds
 
-// Exactly-once semantics
-env.enableCheckpointing(60000); // Checkpoint every 60 seconds
-env.getCheckpointConfig().setCheckpointingMode(CheckpointingMode.EXACTLY_ONCE);
-env.getCheckpointConfig().setMinPauseBetweenCheckpoints(30000);
+# Configure checkpointing
+env.get_checkpoint_config().set_checkpointing_mode(
+    CheckpointingMode.EXACTLY_ONCE
+)
+env.get_checkpoint_config().set_min_pause_between_checkpoints(30000)
+env.get_checkpoint_config().set_checkpoint_timeout(600000)
+env.get_checkpoint_config().set_externalized_checkpoint_cleanup(
+    ExternalizedCheckpointCleanup.RETAIN_ON_CANCELLATION
+)
+
+# Advanced Kafka properties
+advanced_properties = {
+    'bootstrap.servers': 'localhost:9092',
+    'group.id': 'flink-consumer-group',
+    'auto.offset.reset': 'latest',
+    'enable.auto.commit': 'false',
+    'isolation.level': 'read_committed',
+    'key.deserializer': 'org.apache.kafka.common.serialization.StringDeserializer',
+    'value.deserializer': 'org.apache.kafka.common.serialization.StringDeserializer'
+}
 ```
 
 ### 2. File-based Sources
 
-#### Reading from Files
-```java
-// CSV files
-DataStream<Tuple3<String, String, Double>> csvData = env
-    .readCsvFile("path/to/data.csv")
-    .includeFields("1101") // Field mask for String, String, Double
-    .types(String.class, String.class, Double.class);
+#### Reading from Files (Python)
+```python
+from pyflink.datastream.connectors import FileSource, StreamFormat
+from pyflink.datastream.connectors.file_system import FileSink, OutputFileConfig
+from pyflink.common.serialization import SimpleStringEncoder, Encoder
 
-// Parquet files
-DataStream<Row> parquetData = env
-    .createInput(new ParquetRowInputFormat<>(
-        new Path("path/to/data.parquet"),
-        new RowTypeInfo(typeInformation)
-    ));
+# Read CSV files
+file_source = FileSource.for_record_stream_format(
+    StreamFormat.text_line_format(),
+    '/path/to/data/*.csv'
+).build()
+
+csv_stream = env.from_source(
+    source=file_source,
+    watermark_strategy=WatermarkStrategy.no_watermarks(),
+    source_name='CSV Source'
+)
+
+# Read JSON files
+json_source = FileSource.for_record_stream_format(
+    StreamFormat.json_line_format(),
+    '/path/to/data/*.json'
+).build()
+
+json_stream = env.from_source(
+    source=json_source,
+    watermark_strategy=WatermarkStrategy.for_monotonous_timestamps(),
+    source_name='JSON Source'
+)
 ```
 
 ### 3. Custom Sources
 
-#### Custom Source Function
-```java
-public class CustomEventSource extends RichParallelSourceFunction<Event> {
-    private volatile boolean isRunning = true;
-    private Random random = new Random();
+#### Custom Source Function (Python)
+```python
+from pyflink.datastream.functions import SourceFunction, RuntimeContext
+from pyflink.datastream.functions.context import SourceContext
+import random
+import time
+import json
 
-    @Override
-    public void run(SourceContext<Event> ctx) throws Exception {
-        String[] eventTypes = {"page_view", "click", "purchase", "add_to_cart"};
-        String[] users = {"user1", "user2", "user3", "user4", "user5"};
+class CustomEventSource(SourceFunction):
+    def __init__(self, events_per_second=10):
+        self.events_per_second = events_per_second
+        self.is_running = False
 
-        while (isRunning) {
-            Event event = new Event(
-                users[random.nextInt(users.length)],
-                eventTypes[random.nextInt(eventTypes.length)],
-                System.currentTimeMillis(),
-                random.nextDouble() * 100
-            );
+    def run(self, ctx: SourceContext):
+        self.is_running = True
 
-            synchronized (ctx.getCheckpointLock()) {
-                ctx.collect(event);
+        event_types = ['page_view', 'click', 'purchase', 'add_to_cart']
+        users = ['user1', 'user2', 'user3', 'user4', 'user5']
+        products = ['prod1', 'prod2', 'prod3', 'prod4', 'prod5']
+
+        while self.is_running:
+            # Generate random event
+            event = {
+                'user_id': random.choice(users),
+                'event_type': random.choice(event_types),
+                'product_id': random.choice(products),
+                'timestamp': int(time.time() * 1000),  # milliseconds
+                'amount': round(random.uniform(1, 100), 2),
+                'session_id': f"session_{random.randint(1000, 9999)}"
             }
 
-            Thread.sleep(100); // Control event rate
-        }
-    }
+            # Collect event
+            ctx.collect(event)
 
-    @Override
-    public void cancel() {
-        isRunning = false;
-    }
-}
+            # Control event rate
+            time.sleep(1.0 / self.events_per_second)
+
+    def cancel(self):
+        self.is_running = False
+
+# Use custom source
+custom_source = CustomEventSource(events_per_second=100)
+events = env.add_source(custom_source, source_name='Custom Event Source')
+```
+
+### 4. SQL-based Data Ingestion
+
+#### Using SQL for Data Ingestion
+```sql
+-- Create Kafka connector table in SQL
+CREATE TABLE kafka_events (
+    user_id STRING,
+    event_type STRING,
+    timestamp BIGINT,
+    amount DOUBLE,
+    product_id STRING,
+    session_id STRING,
+    WATERMARK FOR timestamp AS timestamp - INTERVAL '5' SECOND
+) WITH (
+    'connector' = 'kafka',
+    'topic' = 'clickstream-events',
+    'properties.bootstrap.servers' = 'localhost:9092',
+    'properties.group.id' = 'flink-consumer',
+    'format' = 'json',
+    'scan.startup.mode' = 'latest-offset'
+);
+
+-- Create filesystem connector table
+CREATE TABLE file_events (
+    user_id STRING,
+    event_type STRING,
+    timestamp BIGINT,
+    amount DOUBLE,
+    product_id STRING,
+    session_id STRING
+) WITH (
+    'connector' = 'filesystem',
+    'path' = 'file:///path/to/output',
+    'format' = 'json',
+    'sink.partition-commit.delay' = '1 min'
+);
+
+-- Simple ETL pipeline using SQL
+INSERT INTO file_events
+SELECT
+    user_id,
+    event_type,
+    timestamp,
+    amount,
+    product_id,
+    session_id
+FROM kafka_events
+WHERE event_type IN ('purchase', 'add_to_cart');
 ```
 
 ---
@@ -253,205 +401,503 @@ public class CustomEventSource extends RichParallelSourceFunction<Event> {
 
 ### 1. Windowing Strategies
 
-#### Tumbling Windows
-```java
-DataStream<Event> events = ...;
+#### Tumbling Windows (Python)
+```python
+from pyflink.datastream.windowing import Time, TumblingEventTimeWindows, TumblingProcessingTimeWindows
+from pyflink.datastream.functions import AggregateFunction
 
-// 5-minute tumbling windows
-DataStream<Result> results = events
-    .keyBy(Event::getUserId)
-    .window(TumblingEventTimeWindows.of(Time.minutes(5)))
-    .aggregate(new EventAggregator());
+# 5-minute tumbling windows (event time)
+results = events.key_by(lambda event: event['user_id']) \
+    .window(TumblingEventTimeWindows.of(Time.minutes(5))) \
+    .aggregate(EventAggregator())
 
-// Processing time windows
-DataStream<Result> processingTimeResults = events
-    .keyBy(Event::getUserId)
-    .window(TumblingProcessingTimeWindows.of(Time.minutes(5)))
-    .aggregate(new EventAggregator());
+# 5-minute tumbling windows (processing time)
+processing_time_results = events.key_by(lambda event: event['user_id']) \
+    .window(TumblingProcessingTimeWindows.of(Time.minutes(5))) \
+    .aggregate(EventAggregator())
 ```
 
-#### Sliding Windows
-```java
-// 1-hour windows sliding every 5 minutes
-DataStream<Result> slidingResults = events
-    .keyBy(Event::getUserId)
-    .window(SlidingEventTimeWindows.of(Time.hours(1), Time.minutes(5)))
-    .aggregate(new EventAggregator());
+#### Sliding Windows (Python)
+```python
+from pyflink.datastream.windowing import SlidingEventTimeWindows
+
+# 1-hour windows sliding every 5 minutes
+sliding_results = events.key_by(lambda event: event['user_id']) \
+    .window(SlidingEventTimeWindows.of(Time.hours(1), Time.minutes(5))) \
+    .aggregate(EventAggregator())
 ```
 
-#### Session Windows
-```java
-// 30-minute session gap
-DataStream<Result> sessionResults = events
-    .keyBy(Event::getUserId)
-    .window(EventTimeSessionWindows.withGap(Time.minutes(30)))
-    .aggregate(new SessionAggregator());
+#### Session Windows (Python)
+```python
+from pyflink.datastream.windowing import EventTimeSessionWindows
+
+# 30-minute session gap
+session_results = events.key_by(lambda event: event['user_id']) \
+    .window(EventTimeSessionWindows.with_gap(Time.minutes(30))) \
+    .aggregate(SessionAggregator())
 ```
 
-### 2. State Management
+#### Count Windows (Python)
+```python
+from pyflink.datastream.windowing import GlobalWindows, CountTrigger
+
+# Window every 100 events per user
+count_results = events.key_by(lambda event: event['user_id']) \
+    .window(GlobalWindows()) \
+    .trigger(CountTrigger.of(100)) \
+    .aggregate(CountWindowAggregator())
+```
+
+### 2. State Management (Python)
 
 #### Value State
-```java
-public class UserBehaviorProcessor extends KeyedProcessFunction<String, Event, UserStats> {
-    private ValueState<UserStats> userStats;
+```python
+from pyflink.datastream.functions import KeyedProcessFunction, RuntimeContext
+from pyflink.common.state import ValueState, ValueStateDescriptor
+from pyflink.common.typeinfo import Types
 
-    @Override
-    public void open(Configuration parameters) {
-        ValueStateDescriptor<UserStats> descriptor =
-            new ValueStateDescriptor<>("userStats", UserStats.class);
-        userStats = getRuntimeContext().getState(descriptor);
-    }
+class UserBehaviorProcessor(KeyedProcessFunction):
+    def __init__(self):
+        self.user_stats = None
 
-    @Override
-    public void processElement(Event event, Context ctx, Collector<UserStats> out) {
-        UserStats stats = userStats.value() == null ? new UserStats() : userStats.value();
+    def open(self, runtime_context: RuntimeContext):
+        # Initialize value state
+        descriptor = ValueStateDescriptor(
+            'user_stats',
+            Types.ROW_NAMED(
+                ['total_events', 'total_amount', 'last_event_time'],
+                [Types.INT(), Types.DOUBLE(), Types.INT()]
+            )
+        )
+        self.user_stats = runtime_context.get_state(descriptor)
 
-        stats.updateWithEvent(event);
-        userStats.update(stats);
+    def process_element(self, event, ctx, collector):
+        # Get current stats or initialize
+        stats = self.user_stats.value() or {
+            'total_events': 0,
+            'total_amount': 0.0,
+            'last_event_time': 0
+        }
 
-        out.collect(stats);
-    }
-}
+        # Update stats
+        stats['total_events'] += 1
+        stats['total_amount'] += event.get('amount', 0)
+        stats['last_event_time'] = event.get('timestamp', 0)
+
+        # Update state
+        self.user_stats.update(stats)
+
+        # Collect result
+        collector.collect({
+            'user_id': event['user_id'],
+            'stats': stats
+        })
 ```
 
 #### List State
-```java
-public class EventBufferProcessor extends KeyedProcessFunction<String, Event, BufferedEvents> {
-    private ListState<Event> eventBuffer;
+```python
+from pyflink.common.state import ListState, ListStateDescriptor
+from pyflink.common.typeinfo import Types
+import time
 
-    @Override
-    public void open(Configuration parameters) {
-        ListStateDescriptor<Event> descriptor =
-            new ListStateDescriptor<>("eventBuffer", Event.class);
-        eventBuffer = getRuntimeContext().getListState(descriptor);
+class EventBufferProcessor(KeyedProcessFunction):
+    def __init__(self):
+        self.event_buffer = None
 
-        // Register cleanup timer
-        long now = System.currentTimeMillis();
-        long cleanupTime = now + Time.hours(1).toMilliseconds();
-        ctx.timerService().registerProcessingTimeTimer(cleanupTime);
-    }
+    def open(self, runtime_context: RuntimeContext):
+        # Initialize list state
+        descriptor = ListStateDescriptor(
+            'event_buffer',
+            Types.ROW_NAMED(
+                ['user_id', 'event_type', 'timestamp', 'amount'],
+                [Types.STRING(), Types.STRING(), Types.INT(), Types.DOUBLE()]
+            )
+        )
+        self.event_buffer = runtime_context.get_list_state(descriptor)
 
-    @Override
-    public void processElement(Event event, Context ctx, Collector<BufferedEvents> out) {
-        eventBuffer.add(event);
-    }
+        # Register cleanup timer (1 hour from now)
+        cleanup_time = int(time.time() * 1000) + (60 * 60 * 1000)
+        ctx.timer_service().register_processing_time_timer(cleanup_time)
 
-    @Override
-    public void onTimer(long timestamp, OnTimerContext ctx, Collector<BufferedEvents> out) {
-        Iterable<Event> events = eventBuffer.get();
-        // Process buffered events
-        out.collect(new BufferedEvents(events));
-        eventBuffer.clear();
-    }
-}
+    def process_element(self, event, ctx, collector):
+        # Add event to buffer
+        self.event_buffer.add(event)
+
+    def on_timer(self, timestamp, ctx, collector):
+        # Get all buffered events
+        buffered_events = list(self.event_buffer.get())
+
+        if buffered_events:
+            # Process buffered events
+            result = {
+                'buffer_size': len(buffered_events),
+                'events': buffered_events,
+                'processing_time': timestamp
+            }
+            collector.collect(result)
+
+        # Clear buffer
+        self.event_buffer.clear()
+```
+
+#### Map State
+```python
+from pyflink.common.state import MapState, MapStateDescriptor
+
+class ProductAnalyticsProcessor(KeyedProcessFunction):
+    def __init__(self):
+        self.product_counts = None
+
+    def open(self, runtime_context: RuntimeContext):
+        # Initialize map state for product counts
+        descriptor = MapStateDescriptor(
+            'product_counts',
+            Types.STRING(),  # Key: product_id
+            Types.ROW_NAMED(['count', 'revenue'], [Types.INT(), Types.DOUBLE()])  # Value
+        )
+        self.product_counts = runtime_context.get_map_state(descriptor)
+
+    def process_element(self, event, ctx, collector):
+        product_id = event.get('product_id')
+        amount = event.get('amount', 0)
+
+        # Get current product stats or initialize
+        if self.product_counts.contains(product_id):
+            stats = self.product_counts.get(product_id)
+            stats['count'] += 1
+            stats['revenue'] += amount
+        else:
+            stats = {'count': 1, 'revenue': amount}
+
+        # Update map state
+        self.product_counts.put(product_id, stats)
+
+        # Emit updated analytics
+        collector.collect({
+            'product_id': product_id,
+            'analytics': stats
+        })
+```
+
+### 3. SQL Windowing
+
+#### Window Functions in SQL
+```sql
+-- Tumbling window (5-minute)
+INSERT INTO purchase_stats
+SELECT
+    user_id,
+    TUMBLE_START(timestamp, INTERVAL '5' MINUTES) as window_start,
+    TUMBLE_END(timestamp, INTERVAL '5' MINUTES) as window_end,
+    COUNT(*) as event_count,
+    SUM(amount) as total_amount
+FROM kafka_events
+WHERE event_type = 'purchase'
+GROUP BY
+    user_id,
+    TUMBLE(timestamp, INTERVAL '5' MINUTES);
+
+-- Sliding window (1-hour window, 5-minute slide)
+INSERT INTO sliding_purchase_stats
+SELECT
+    user_id,
+    HOP_START(timestamp, INTERVAL '5' MINUTES, INTERVAL '1' HOUR) as window_start,
+    HOP_END(timestamp, INTERVAL '5' MINUTES, INTERVAL '1' HOUR) as window_end,
+    COUNT(*) as event_count,
+    SUM(amount) as total_amount
+FROM kafka_events
+WHERE event_type = 'purchase'
+GROUP BY
+    user_id,
+    HOP(timestamp, INTERVAL '5' MINUTES, INTERVAL '1' HOUR);
+
+-- Session window
+INSERT INTO session_stats
+SELECT
+    user_id,
+    SESSION_START(timestamp, INTERVAL '30' MINUTES) as session_start,
+    SESSION_END(timestamp, INTERVAL '30' MINUTES) as session_end,
+    COUNT(*) as event_count,
+    SUM(amount) as total_amount
+FROM kafka_events
+GROUP BY
+    user_id,
+    SESSION(timestamp, INTERVAL '30' MINUTES);
 ```
 
 ---
 
 ## ⚙️ Flink Processing Concepts
 
-### 1. Operators and Transformations
+### 1. Operators and Transformations (Python)
 
 #### Map Transformation
-```java
-DataStream<Event> events = ...;
-DataStream<EnrichedEvent> enrichedEvents = events
-    .map(new MapFunction<Event, EnrichedEvent>() {
-        @Override
-        public EnrichedEvent map(Event event) throws Exception {
-            return new EnrichedEvent(
-                event.getUserId(),
-                event.getEventType(),
-                event.getTimestamp(),
-                event.getAmount(),
-                System.currentTimeMillis() // Processing timestamp
-            );
+```python
+from pyflink.datastream.functions import MapFunction
+
+class EventEnricher(MapFunction):
+    def map(self, event):
+        import time
+        return {
+            'user_id': event['user_id'],
+            'event_type': event['event_type'],
+            'timestamp': event['timestamp'],
+            'amount': event['amount'],
+            'processing_timestamp': int(time.time() * 1000),
+            'session_id': event.get('session_id', 'unknown')
         }
-    });
+
+# Apply map transformation
+enriched_events = events.map(EventEnricher())
 ```
 
 #### Filter Transformation
-```java
-DataStream<Event> purchaseEvents = events
-    .filter(event -> "purchase".equals(event.getEventType()));
+```python
+# Filter purchase events
+purchase_events = events.filter(lambda event: event['event_type'] == 'purchase')
+
+# Filter by amount threshold
+high_value_purchases = purchase_events.filter(lambda event: event['amount'] > 100)
+
+# Multiple conditions
+target_events = events.filter(
+    lambda event: event['event_type'] in ['purchase', 'add_to_cart']
+    and event['amount'] > 50
+)
 ```
 
 #### KeyBy Transformation
-```java
-KeyedStream<Event, String> keyedStream = events
-    .keyBy(Event::getUserId);
+```python
+# Key by user_id
+user_keyed_stream = events.key_by(lambda event: event['user_id'])
+
+# Key by multiple fields
+session_keyed_stream = events.key_by(
+    lambda event: (event['user_id'], event['session_id'])
+)
+
+# Key by product category
+product_keyed_stream = events.key_by(lambda event: event.get('product_category', 'unknown'))
 ```
 
 #### Reduce Transformation
-```java
-DataStream<EventSummary> summaries = keyedStream
-    .reduce((event1, event2) -> {
-        double totalAmount = event1.getAmount() + event2.getAmount();
-        int eventCount = event1.getEventCount() + event2.getEventCount();
-        return new EventSummary(
-            event1.getUserId(),
-            totalAmount,
-            eventCount,
-            Math.max(event1.getTimestamp(), event2.getTimestamp())
-        );
-    });
+```python
+from pyflink.datastream.functions import ReduceFunction
+
+class EventSummaryReducer(ReduceFunction):
+    def reduce(self, event1, event2):
+        return {
+            'user_id': event1['user_id'],
+            'total_amount': event1.get('total_amount', 0) + event2.get('amount', 0),
+            'event_count': event1.get('event_count', 1) + 1,
+            'last_timestamp': max(event1.get('timestamp', 0), event2.get('timestamp', 0)),
+            'first_timestamp': min(event1.get('timestamp', 0), event2.get('timestamp', 0))
+        }
+
+# Apply reduce transformation
+summaries = user_keyed_stream.reduce(EventSummaryReducer())
 ```
 
-### 2. Connect and CoProcessFunction
+#### FlatMap Transformation
+```python
+from pyflink.datastream.functions import FlatMapFunction
+
+class EventSplitter(FlatMapFunction):
+    def flat_map(self, event):
+        # Split one event into multiple
+        if event['event_type'] == 'purchase':
+            # Generate multiple events for different analytics
+            yield {'type': 'revenue', 'value': event['amount'], 'user_id': event['user_id']}
+            yield {'type': 'transaction', 'value': 1, 'user_id': event['user_id']}
+            if event['amount'] > 100:
+                yield {'type': 'high_value', 'value': event['amount'], 'user_id': event['user_id']}
+        else:
+            yield {'type': event['event_type'], 'value': 1, 'user_id': event['user_id']}
+
+# Apply flatmap
+analytics_events = events.flat_map(EventSplitter())
+```
+
+### 2. Connect and CoProcessFunction (Python)
 
 #### Connecting Two Streams
-```java
-DataStream<Event> events = ...;
-DataStream<UserProfile> profiles = ...;
+```python
+from pyflink.datastream import ConnectedStreams
+from pyflink.datastream.functions import CoProcessFunction, RuntimeContext
+from pyflink.common.state import ValueState, ValueStateDescriptor
 
-ConnectedStreams<Event, UserProfile> connected = events.connect(profiles);
+class EventEnrichmentProcess(CoProcessFunction):
+    def __init__(self):
+        self.profile_state = None
 
-DataStream<EnrichedEvent> enrichedEvents = connected
-    .process(new CoProcessFunction<Event, UserProfile, EnrichedEvent>() {
-        private ValueState<UserProfile> profileState;
+    def open(self, runtime_context: RuntimeContext):
+        # Initialize state for user profiles
+        descriptor = ValueStateDescriptor(
+            'user_profile',
+            Types.ROW_NAMED(
+                ['user_segment', 'loyalty_tier', 'preferences'],
+                [Types.STRING(), Types.STRING(), Types.STRING()]
+            )
+        )
+        self.profile_state = runtime_context.get_state(descriptor)
 
-        @Override
-        public void open(Configuration parameters) {
-            profileState = getRuntimeContext().getState(
-                new ValueStateDescriptor<>("profile", UserProfile.class)
-            );
-        }
-
-        @Override
-        public void processElement1(Event event, Context ctx, Collector<EnrichedEvent> out) {
-            UserProfile profile = profileState.value();
-            if (profile != null) {
-                out.collect(new EnrichedEvent(event, profile));
+    def process_element1(self, event, ctx, collector):
+        # Process event from first stream
+        profile = self.profile_state.value()
+        if profile:
+            # Enrich event with profile data
+            enriched_event = {
+                **event,
+                'user_segment': profile['user_segment'],
+                'loyalty_tier': profile['loyalty_tier'],
+                'preferences': profile['preferences']
             }
-        }
+            collector.collect(enriched_event)
+        else:
+            # Collect event without enrichment
+            collector.collect({**event, 'user_segment': 'unknown'})
 
-        @Override
-        public void processElement2(UserProfile profile, Context ctx, Collector<EnrichedEvent> out) {
-            profileState.update(profile);
-        }
-    });
+    def process_element2(self, profile, ctx, collector):
+        # Process profile update from second stream
+        self.profile_state.update(profile)
+        # Optionally emit profile update event
+        collector.collect({'type': 'profile_update', 'profile': profile})
+
+# Connect two streams
+events_stream = ...  # Your events DataStream
+profiles_stream = ...  # Your user profiles DataStream
+
+connected_streams = events_stream.connect(profiles_stream)
+enriched_events = connected_streams.process(EventEnrichmentProcess())
 ```
 
-### 3. Side Outputs
+### 3. Side Outputs (Python)
 
 #### Splitting Streams
-```java
-final OutputTag<Event> suspiciousTag = new OutputTag<Event>("suspicious") {};
+```python
+from pyflink.datastream.functions import ProcessFunction, RuntimeContext
+from pyflink.datastream.output_tag import OutputTag
 
-SingleOutputStreamOperator<Event> mainStream = events
-    .process(new ProcessFunction<Event, Event>() {
-        @Override
-        public void processElement(Event event, Context ctx, Collector<Event> out) {
-            if (isSuspicious(event)) {
-                ctx.output(suspiciousTag, event);
-            } else {
-                out.collect(event);
-            }
-        }
-    });
+# Define output tags for different event types
+purchase_tag = OutputTag('purchase_events', Types.ROW_NAMED(
+    ['user_id', 'amount', 'timestamp'],
+    [Types.STRING(), Types.DOUBLE(), Types.INT()]
+))
 
-DataStream<Event> suspiciousEvents = mainStream.getSideOutput(suspiciousTag);
+fraud_tag = OutputTag('fraud_events', Types.ROW_NAMED(
+    ['user_id', 'event_type', 'risk_score'],
+    [Types.STRING(), Types.STRING(), Types.DOUBLE()]
+))
+
+error_tag = OutputTag('error_events', Types.ROW_NAMED(
+    ['event_id', 'error_message', 'timestamp'],
+    [Types.STRING(), Types.STRING(), Types.INT()]
+))
+
+class EventRouter(ProcessFunction):
+    def __init__(self):
+        super().__init__()
+
+    def process_element(self, event, ctx, collector):
+        try:
+            # Route to different side outputs based on event type
+            if event['event_type'] == 'purchase':
+                # Main stream for normal purchases
+                collector.collect(event)
+
+                # Also send to purchase side output for special processing
+                ctx.output(purchase_tag, {
+                    'user_id': event['user_id'],
+                    'amount': event['amount'],
+                    'timestamp': event['timestamp']
+                })
+
+            elif self.is_fraud_event(event):
+                # Send to fraud detection side output
+                ctx.output(fraud_tag, {
+                    'user_id': event['user_id'],
+                    'event_type': event['event_type'],
+                    'risk_score': self.calculate_risk_score(event)
+                })
+            else:
+                # Normal event to main stream
+                collector.collect(event)
+
+        except Exception as e:
+            # Send to error side output
+            ctx.output(error_tag, {
+                'event_id': event.get('event_id', 'unknown'),
+                'error_message': str(e),
+                'timestamp': int(time.time() * 1000)
+            })
+
+    def is_fraud_event(self, event):
+        # Simple fraud detection logic
+        return (event.get('amount', 0) > 1000 and
+                event.get('event_type') == 'purchase')
+
+    def calculate_risk_score(self, event):
+        # Calculate risk score based on various factors
+        amount_score = min(event.get('amount', 0) / 100, 10)
+        return round(amount_score, 2)
+
+# Apply process function with side outputs
+main_stream = events.process(EventRouter())
+
+# Get side output streams
+purchase_side_stream = main_stream.get_side_output(purchase_tag)
+fraud_side_stream = main_stream.get_side_output(fraud_tag)
+error_side_stream = main_stream.get_side_output(error_tag)
+
+# Process each stream differently
+main_stream.print()  # Normal events
+purchase_side_stream.add_sink(PurchaseAnalyticsSink())
+fraud_side_stream.add_sink(FraudAlertSink())
+error_side_stream.add_sink(ErrorLoggingSink())
 ```
+
+### 4. Union and Window Joins (Python)
+
+#### Union Multiple Streams
+```python
+# Create multiple event streams
+click_events = ...  # Click events DataStream
+page_view_events = ...  # Page view events DataStream
+purchase_events = ...  # Purchase events DataStream
+
+# Union all streams
+all_events = click_events.union(page_view_events, purchase_events)
+
+# Process unified stream
+unified_analytics = all_events.key_by(lambda event: event['user_id']) \
+    .window(TumblingEventTimeWindows.of(Time.minutes(10))) \
+    .aggregate(UnifiedEventAggregator())
+```
+
+#### Window Join
+```python
+from pyflink.datastream.windowing import Time
+
+# Join user events with user profiles within 5-minute window
+class UserProfileJoin(ProcessWindowFunction):
+    def process(self, user_id, ctx, events, profiles, collector):
+        for event in events:
+            for profile in profiles:
+                # Check if event and profile are within time window
+                if abs(event['timestamp'] - profile['timestamp']) <= 300000:  # 5 minutes
+                    collector.collect({
+                        'event': event,
+                        'profile': profile,
+                        'join_time': ctx.current_watermark()
+                    })
+
+# Join events and profiles
+joined_stream = events.join(
+    profiles,
+    where=lambda e: e['user_id'],
+    equals=lambda p: p['user_id'],
+    window=TumblingEventTimeWindows.of(Time.minutes(5))
+).apply(UserProfileJoin())
 
 ---
 
@@ -600,47 +1046,155 @@ graph LR
 
 ### Code Comparison
 
-#### Flink Implementation
-```java
-// Flink DataStream API
-DataStream<Event> events = env
-    .addSource(new FlinkKafkaConsumer<>(...))
-    .assignTimestampsAndWatermarks(WatermarkStrategy.forBoundedOutOfOrderness(Duration.ofSeconds(5)))
-    .keyBy(Event::getUserId)
-    .window(TumblingEventTimeWindows.of(Time.minutes(5)))
-    .aggregate(new EventAggregateFunction());
+#### Flink Implementation (Python)
+```python
+# Flink DataStream API (Python)
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.connectors import FlinkKafkaConsumer
+from pyflink.common.serialization import JsonRowDeserializationSchema
+from pyflink.common.watermarks import WatermarkStrategy
+from pyflink.common.typeinfo import Types
+from pyflink.datastream.windowing import Time, TumblingEventTimeWindows
 
-events.addSink(new FlinkKafkaProducer<>(...));
+env = StreamExecutionEnvironment.get_execution_environment()
+
+# Define schema
+schema = Types.ROW_NAMED(
+    ['user_id', 'event_type', 'timestamp', 'amount'],
+    [Types.STRING(), Types.STRING(), Types.INT(), Types.DOUBLE()]
+)
+
+# Kafka source
+kafka_consumer = FlinkKafkaConsumer(
+    topics='events-topic',
+    deserialization_schema=JsonRowDeserializationSchema(schema),
+    properties={'bootstrap.servers': 'localhost:9092'}
+)
+
+# Create pipeline
+events = env.add_source(kafka_consumer)
+    .assign_timestamps_and_watermarks(
+        WatermarkStrategy.for_bounded_out_of_orderness(5000)
+    )
+    .key_by(lambda event: event['user_id'])
+    .window(TumblingEventTimeWindows.of(Time.minutes(5)))
+    .aggregate(EventAggregateFunction())
+
+# Write to Kafka sink
+events.add_sink(FlinkKafkaProducer(
+    topic='results-topic',
+    serialization_schema=JsonRowSerializationSchema(),
+    properties={'bootstrap.servers': 'localhost:9092'}
+))
+
+env.execute("Flink Event Processing")
 ```
 
-#### Spark Implementation
-```scala
-// Spark Structured Streaming
-val events = spark
-    .readStream
-    .format("kafka")
-    .option("kafka.bootstrap.servers", "localhost:9092")
-    .option("subscribe", "events-topic")
-    .load()
-    .selectExpr("CAST(value AS STRING) as json")
-    .select(from_json($"json", schema).as("event"))
-    .select("event.*")
-    .withWatermark("timestamp", "5 seconds")
+#### Spark Implementation (Python)
+```python
+# Spark Structured Streaming (Python)
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import *
+from pyspark.sql.types import *
 
-val results = events
+# Create Spark session
+spark = SparkSession.builder \
+    .appName("Spark Streaming") \
+    .getOrCreate()
+
+# Define schema
+schema = StructType([
+    StructField("user_id", StringType(), True),
+    StructField("event_type", StringType(), True),
+    StructField("timestamp", LongType(), True),
+    StructField("amount", DoubleType(), True)
+])
+
+# Read from Kafka
+events = spark \
+    .readStream \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("subscribe", "events-topic") \
+    .load() \
+    .selectExpr("CAST(value AS STRING) as json") \
+    .select(from_json("json", schema).alias("event")) \
+    .select("event.*") \
+    .withWatermark("timestamp", "5 minutes")
+
+# Window aggregation
+results = events \
     .groupBy(
-        window($"timestamp", "5 minutes"),
-        $"userId"
-    )
+        window("timestamp", "5 minutes"),
+        col("user_id")
+    ) \
     .agg(
-        count("*").as("eventCount"),
-        sum("amount").as("totalAmount")
+        count("*").alias("event_count"),
+        sum("amount").alias("total_amount")
     )
 
-val query = results
-    .writeStream
-    .format("console")
-    .outputMode("complete")
+# Write results
+query = results \
+    .writeStream \
+    .format("console") \
+    .outputMode("complete") \
+    .start()
+
+query.awaitTermination()
+```
+
+#### SQL-based Comparison
+
+##### Flink SQL
+```sql
+-- Flink SQL DDL
+CREATE TABLE kafka_events (
+    user_id STRING,
+    event_type STRING,
+    timestamp BIGINT,
+    amount DOUBLE,
+    WATERMARK FOR timestamp AS timestamp - INTERVAL '5' SECOND
+) WITH (
+    'connector' = 'kafka',
+    'topic' = 'events-topic',
+    'properties.bootstrap.servers' = 'localhost:9092',
+    'format' = 'json'
+);
+
+-- Flink SQL Query
+INSERT INTO results
+SELECT
+    user_id,
+    TUMBLE_START(timestamp, INTERVAL '5' MINUTES) as window_start,
+    COUNT(*) as event_count,
+    SUM(amount) as total_amount
+FROM kafka_events
+GROUP BY
+    user_id,
+    TUMBLE(timestamp, INTERVAL '5' MINUTES);
+```
+
+##### Spark SQL
+```sql
+-- Spark doesn't have native streaming DDL
+-- Use DataFrame API for stream definition
+
+-- Spark SQL Query (on streaming DataFrame)
+results.createOrReplaceTempView("streaming_events")
+
+spark.sql("""
+    SELECT
+        user_id,
+        window.start as window_start,
+        COUNT(*) as event_count,
+        SUM(amount) as total_amount
+    FROM streaming_events
+    GROUP BY
+        user_id,
+        window
+""").writeStream \
+    .format("console") \
+    .outputMode("complete") \
     .start()
 ```
 
@@ -1063,13 +1617,383 @@ public class LogAnalysisJob {
 
 ---
 
+## 🚀 Simple Getting Started Examples
+
+### 1. Basic Word Count (Python)
+
+#### Flink DataStream API
+```python
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.functions import FlatMapFunction, ReduceFunction
+import re
+
+# Simple word count example
+env = StreamExecutionEnvironment.get_execution_environment()
+
+class Tokenizer(FlatMapFunction):
+    def flat_map(self, sentence):
+        words = re.findall(r'\w+', sentence.lower())
+        for word in words:
+            yield (word, 1)
+
+class WordCounter(ReduceFunction):
+    def reduce(self, count1, count2):
+        return (count1[0], count1[1] + count2[1])
+
+# Create sample data
+sentences = [
+    "Hello world",
+    "Hello Flink",
+    "Stream processing is fun",
+    "Flink is powerful",
+    "Hello stream processing"
+]
+
+# Create DataStream from collection
+text_stream = env.from_collection(sentences)
+
+# Process data
+word_counts = text_stream.flat_map(Tokenizer()) \
+    .key_by(lambda word_count: word_count[0]) \
+    .reduce(WordCounter())
+
+# Print results
+word_counts.print()
+
+# Execute job
+env.execute("Python Word Count")
+```
+
+#### SQL Version
+```python
+from pyflink.table import StreamTableEnvironment
+
+# Create table environment
+table_env = StreamTableEnvironment.create(env)
+
+# Create temporary table from collection
+table_env.create_temporary_view("sentences", text_stream)
+
+# SQL word count
+result = table_env.sql_query("""
+    SELECT
+        word,
+        COUNT(*) as count
+    FROM (
+        SELECT FLATTEN(ARRAY_SPLIT(LOWER(sentence), ' ')) as word
+        FROM sentences
+    ) t
+    WHERE word != ''
+    GROUP BY word
+    ORDER BY count DESC
+    LIMIT 10
+""")
+
+# Print results
+result.execute().print()
+```
+
+### 2. Real-time Analytics Pipeline (Python)
+
+```python
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.connectors import FlinkKafkaConsumer
+from pyflink.common.serialization import JsonRowDeserializationSchema
+from pyflink.common.watermarks import WatermarkStrategy
+from pyflink.common.typeinfo import Types
+from pyflink.datastream.windowing import Time, TumblingEventTimeWindows
+from pyflink.datastream.functions import AggregateFunction
+import json
+
+# Analytics pipeline
+env = StreamExecutionEnvironment.get_execution_environment()
+
+# Enable checkpointing for reliability
+env.enable_checkpointing(30000)  # 30 seconds
+
+# Define event schema
+schema = Types.ROW_NAMED([
+    'user_id', 'event_type', 'timestamp', 'amount',
+    'product_id', 'category'
+], [
+    Types.STRING(), Types.STRING(), Types.INT(), Types.DOUBLE(),
+    Types.STRING(), Types.STRING()
+])
+
+# Kafka source
+kafka_source = FlinkKafkaConsumer(
+    topics='user-events',
+    deserialization_schema=JsonRowDeserializationSchema(schema),
+    properties={
+        'bootstrap.servers': 'localhost:9092',
+        'group.id': 'analytics-group'
+    }
+)
+
+# Create event stream
+events = env.add_source(kafka_source) \
+    .assign_timestamps_and_watermarks(
+        WatermarkStrategy.for_bounded_out_of_orderness(5000)
+    )
+
+# Multiple analytics pipelines
+
+# 1. User activity analytics
+user_activity = events.key_by(lambda e: e['user_id']) \
+    .window(TumblingEventTimeWindows.of(Time.minutes(5))) \
+    .aggregate(UserActivityAggregator())
+
+# 2. Product popularity
+product_popularity = events.filter(lambda e: e['event_type'] == 'view') \
+    .key_by(lambda e: e['product_id']) \
+    .window(TumblingEventTimeWindows.of(Time.minutes(10))) \
+    .aggregate(ProductPopularityAggregator())
+
+# 3. Revenue analytics
+revenue_analytics = events.filter(lambda e: e['event_type'] == 'purchase') \
+    .key_by(lambda e: e['category']) \
+    .window(TumblingEventTimeWindows.of(Time.minutes(15))) \
+    .aggregate(RevenueAggregator())
+
+# Print results for demonstration
+user_activity.print("User Activity: ")
+product_popularity.print("Product Popularity: ")
+revenue_analytics.print("Revenue Analytics: ")
+
+# Execute
+env.execute("Real-time Analytics Pipeline")
+```
+
+### 3. SQL-only Streaming Pipeline
+
+```python
+from pyflink.table import StreamTableEnvironment
+from pyflink.table.expressions import col, lit
+
+# Create table environment
+table_env = StreamTableEnvironment.create(env)
+
+# Create source table using SQL DDL
+table_env.execute_sql("""
+    CREATE TABLE user_events (
+        user_id STRING,
+        event_type STRING,
+        timestamp BIGINT,
+        amount DOUBLE,
+        product_id STRING,
+        category STRING,
+        WATERMARK FOR timestamp AS timestamp - INTERVAL '5' SECOND
+    ) WITH (
+        'connector' = 'kafka',
+        'topic' = 'user-events',
+        'properties.bootstrap.servers' = 'localhost:9092',
+        'format' = 'json',
+        'scan.startup.mode' = 'latest-offset'
+    )
+""")
+
+# Create results table
+table_env.execute_sql("""
+    CREATE TABLE user_analytics (
+        user_id STRING,
+        window_start TIMESTAMP(3),
+        window_end TIMESTAMP(3),
+        total_events INT,
+        total_amount DOUBLE,
+        unique_products INT
+    ) WITH (
+        'connector' = 'print'
+    )
+""")
+
+# Run analytics pipeline
+table_env.execute_sql("""
+    INSERT INTO user_analytics
+    SELECT
+        user_id,
+        TUMBLE_START(timestamp, INTERVAL '5' MINUTES) as window_start,
+        TUMBLE_END(timestamp, INTERVAL '5' MINUTES) as window_end,
+        COUNT(*) as total_events,
+        COALESCE(SUM(amount), 0) as total_amount,
+        COUNT(DISTINCT product_id) as unique_products
+    FROM user_events
+    GROUP BY
+        user_id,
+        TUMBLE(timestamp, INTERVAL '5' MINUTES)
+""").wait()
+```
+
+### 4. Simple IoT Processing (Python)
+
+```python
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.functions import MapFunction, KeyedProcessFunction
+from pyflink.common.state import ValueState, ValueStateDescriptor
+from pyflink.common.typeinfo import Types
+import random
+import time
+
+class IoTSensor:
+    def __init__(self, sensor_id, location):
+        self.sensor_id = sensor_id
+        self.location = location
+        self.base_temperature = 20.0
+        self.base_humidity = 50.0
+
+    def generate_reading(self):
+        # Simulate sensor readings with some randomness
+        temperature = self.base_temperature + random.uniform(-5, 5)
+        humidity = self.base_humidity + random.uniform(-10, 10)
+        return {
+            'sensor_id': self.sensor_id,
+            'location': self.location,
+            'temperature': round(temperature, 2),
+            'humidity': round(humidity, 2),
+            'timestamp': int(time.time() * 1000)
+        }
+
+class AnomalyDetector(KeyedProcessFunction):
+    def __init__(self):
+        self.last_reading = None
+
+    def open(self, runtime_context):
+        descriptor = ValueStateDescriptor(
+            'last_reading',
+            Types.ROW_NAMED(
+                ['temperature', 'humidity', 'timestamp'],
+                [Types.DOUBLE(), Types.DOUBLE(), Types.INT()]
+            )
+        )
+        self.last_reading = runtime_context.get_state(descriptor)
+
+    def process_element(self, reading, ctx, collector):
+        last = self.last_reading.value()
+
+        if last:
+            # Check for anomalies
+            temp_change = abs(reading['temperature'] - last['temperature'])
+            humidity_change = abs(reading['humidity'] - last['humidity'])
+
+            if temp_change > 5.0:  # Temperature anomaly
+                collector.collect({
+                    'type': 'temperature_anomaly',
+                    'sensor_id': reading['sensor_id'],
+                    'change': temp_change,
+                    'current_value': reading['temperature'],
+                    'previous_value': last['temperature'],
+                    'timestamp': reading['timestamp']
+                })
+
+            if humidity_change > 20.0:  # Humidity anomaly
+                collector.collect({
+                    'type': 'humidity_anomaly',
+                    'sensor_id': reading['sensor_id'],
+                    'change': humidity_change,
+                    'current_value': reading['humidity'],
+                    'previous_value': last['humidity'],
+                    'timestamp': reading['timestamp']
+                })
+
+        # Update state
+        self.last_reading.update({
+            'temperature': reading['temperature'],
+            'humidity': reading['humidity'],
+            'timestamp': reading['timestamp']
+        })
+
+# IoT processing pipeline
+env = StreamExecutionEnvironment.get_execution_environment()
+
+# Create sensors
+sensors = [
+    IoTSensor('sensor_1', 'building_a'),
+    IoTSensor('sensor_2', 'building_a'),
+    IoTSensor('sensor_3', 'building_b'),
+    IoTSensor('sensor_4', 'building_b')
+]
+
+# Generate sensor data
+sensor_data = []
+for _ in range(1000):  # 1000 readings
+    sensor = random.choice(sensors)
+    sensor_data.append(sensor.generate_reading())
+    time.sleep(0.1)  # Simulate real-time
+
+# Create data stream
+readings = env.from_collection(sensor_data)
+
+# Process for anomalies
+anomalies = readings.key_by(lambda r: r['sensor_id']) \
+    .process(AnomalyDetector())
+
+# Output results
+readings.print("Sensor Readings: ")
+anomalies.print("Anomalies: ")
+
+# Execute
+env.execute("IoT Anomaly Detection")
+```
+
+### 5. Quick Start Checklist
+
+#### Setup Flink Python Environment
+```bash
+# Install PyFlink
+pip install apache-flink
+
+# Verify installation
+python -c "from pyflink.datastream import StreamExecutionEnvironment; print('Flink installed successfully')"
+
+# Run a simple job
+python simple_word_count.py
+```
+
+#### Basic Operations
+1. **Create Execution Environment**
+2. **Define Data Sources** (Kafka, Files, Collections)
+3. **Apply Transformations** (map, filter, keyBy, window)
+4. **Add Sinks** (console, files, databases)
+5. **Execute the Job**
+
+#### Common Patterns
+- **Filtering**: `stream.filter(lambda x: x['value'] > threshold)`
+- **Mapping**: `stream.map(lambda x: transform(x))`
+- **Windowing**: `stream.window(TumblingEventTimeWindows.of(Time.minutes(5)))`
+- **Aggregation**: `stream.aggregate(MyAggregator())`
+
+---
+
 ## 🎯 Conclusion
 
 Apache Flink is a powerful stream processing framework that excels in real-time data processing scenarios. Its true stream processing model, advanced windowing capabilities, and rich state management make it ideal for low-latency, stateful applications.
 
+This guide provides a comprehensive foundation for learning Flink, with practical Python examples and SQL queries that are easier to understand and implement. The examples cover:
+
+- **Basic operations** (word count, simple transformations)
+- **Real-time analytics** (user behavior, product popularity)
+- **SQL-based processing** (declarative streaming queries)
+- **IoT processing** (sensor data, anomaly detection)
+- **Production patterns** (windowing, state management, sinks)
+
 When comparing with Spark Structured Streaming, Flink offers better performance for true streaming workloads but has a steeper learning curve. The choice between them depends on specific use cases, existing infrastructure, and team expertise.
 
-This guide provides a comprehensive foundation for learning Flink, from basic concepts to advanced features and production best practices. Continue experimenting with different patterns and stay engaged with the Flink community for the latest developments.
+### Key Takeaways
+
+1. **Python + SQL**: Accessible implementation with familiar syntax
+2. **True Streaming**: Sub-second latency and event-time processing
+3. **State Management**: Rich state backends for complex operations
+4. **Exactly-once**: Reliable processing with checkpointing
+5. **Ecosystem**: Growing set of connectors and libraries
+
+### Next Steps
+
+1. **Experiment** with the provided examples
+2. **Try different data sources** (Kafka, files, APIs)
+3. **Implement windowing strategies** for your use case
+4. **Add stateful processing** for complex analytics
+5. **Deploy to production** with proper monitoring
+
+Continue experimenting with different patterns and stay engaged with the Flink community for the latest developments.
 
 ---
 
