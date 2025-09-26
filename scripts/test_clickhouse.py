@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+where #!/usr/bin/env python3
 """
 ClickHouse connection test script
 Tests connection to ClickHouse Cloud using environment variables
