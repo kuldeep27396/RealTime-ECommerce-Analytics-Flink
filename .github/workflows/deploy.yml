@@ -169,11 +169,7 @@ jobs:
           **Next Steps**:
           1. Monitor service health in Railway dashboard
           2. Check ClickHouse for incoming data
-          3. View real-time analytics in Grafana
-
-          🤖 Generated with [Claude Code](https://claude.ai/code)
-
-          Co-Authored-By: Claude <noreply@anthropic.com>`;
+          3. View real-time analytics in Grafana`;
 
           const issue_number = context.issue.number;
 

@@ -2,9 +2,9 @@ name: Validate Configuration
 
 on:
   push:
-    paths: ['**/*.py', '**/requirements.txt', '**/config.py']
+    paths: ['**/*.py', '**/pyproject.toml', '**/config.py']
   pull_request:
-    paths: ['**/*.py', '**/requirements.txt', '**/config.py']
+    paths: ['**/*.py', '**/pyproject.toml', '**/config.py']
 
 jobs:
   validate-config:
@@ -22,18 +22,20 @@ jobs:
       with:
         python-version: '3.11'
 
+    - name: Install UV
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+
     - name: Install dependencies
-      working-directory: services/${{ matrix.service }}
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        uv sync --all-extras --dev
 
     - name: Validate configuration schema
-      working-directory: services/${{ matrix.service }}
       run: |
-        python -c "
+        uv run python -c "
         import sys
-        sys.path.insert(0, 'src')
+        sys.path.insert(0, 'services/${{ matrix.service }}/src')
         from config import get_config
         print('✓ Configuration schema is valid')
         config = get_config()
