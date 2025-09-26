@@ -81,7 +81,7 @@ graph LR
         D1[Database: ecommerce]
         D2[Table: clickstream_events]
         D3[Engine: MergeTree]
-        D4[Order Key: (timestamp, user_id)]
+        D4[Order Key: timestamp user_id]
         D5[Compression: LZ4]
         D6[TTL: 30 days]
     end
