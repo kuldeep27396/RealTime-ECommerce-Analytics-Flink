@@ -1,0 +1,187 @@
+name: Deploy to Railway
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+  RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: [producer, consumer]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+
+    - name: Install dependencies
+      run: |
+        uv sync --all-extras --dev
+
+    - name: Run tests
+      run: |
+        uv run pytest tests/ --cov=services --cov-report=xml --cov-report=term-missing
+      if: matrix.service == 'producer'
+
+    - name: Run linting
+      run: |
+        uv run black --check services/
+        uv run isort --check-only services/
+        uv run flake8 services/
+
+    - name: Type checking
+      run: |
+        uv run mypy services/
+
+    - name: Validate configuration
+      run: |
+        uv run python -c "
+        import sys
+        sys.path.insert(0, 'services/${{ matrix.service }}/src')
+        from config import get_config
+        print('✓ Configuration schema is valid')
+        config = get_config()
+        print(f'✓ Configuration loaded successfully')
+        "
+
+  deploy-producer:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+
+    - name: Install Railway CLI
+      run: |
+        curl -fsSL https://railway.app/install.sh | sh
+        echo ~/.local/bin >> $GITHUB_PATH
+
+    - name: Login to Railway
+      run: railway login --token ${{ env.RAILWAY_TOKEN }}
+
+    - name: Generate uv.lock
+      run: uv sync --all-extras
+
+    - name: Deploy Producer Service
+      run: |
+        railway service variables set \
+          PRODUCER_KAFKA_BOOTSTRAP_SERVERS="${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}" \
+          PRODUCER_KAFKA_TOPIC="${{ secrets.KAFKA_TOPIC }}" \
+          PRODUCER_KAFKA_API_KEY="${{ secrets.KAFKA_API_KEY }}" \
+          PRODUCER_KAFKA_API_SECRET="${{ secrets.KAFKA_API_SECRET }}" \
+          PRODUCER_API_URL="${{ secrets.API_URL }}" \
+          --service-id ${{ secrets.RAILWAY_PRODUCER_SERVICE_ID }}
+
+        railway up --service-id ${{ secrets.RAILWAY_PRODUCER_SERVICE_ID }}
+
+  deploy-consumer:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install UV
+      uses: astral-sh/setup-uv@v2
+      with:
+        version: "latest"
+
+    - name: Install Railway CLI
+      run: |
+        curl -fsSL https://railway.app/install.sh | sh
+        echo ~/.local/bin >> $GITHUB_PATH
+
+    - name: Login to Railway
+      run: railway login --token ${{ env.RAILWAY_TOKEN }}
+
+    - name: Generate uv.lock
+      run: uv sync --all-extras
+
+    - name: Deploy Consumer Service
+      run: |
+        railway service variables set \
+          CONSUMER_KAFKA_BOOTSTRAP_SERVERS="${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}" \
+          CONSUMER_KAFKA_TOPIC="${{ secrets.KAFKA_TOPIC }}" \
+          CONSUMER_KAFKA_GROUP_ID="${{ secrets.KAFKA_GROUP_ID }}" \
+          CONSUMER_KAFKA_API_KEY="${{ secrets.KAFKA_API_KEY }}" \
+          CONSUMER_KAFKA_API_SECRET="${{ secrets.KAFKA_API_SECRET }}" \
+          CONSUMER_CLICKHOUSE_HOST="${{ secrets.CLICKHOUSE_HOST }}" \
+          CONSUMER_CLICKHOUSE_PORT="${{ secrets.CLICKHOUSE_PORT }}" \
+          CONSUMER_CLICKHOUSE_DATABASE="${{ secrets.CLICKHOUSE_DATABASE }}" \
+          CONSUMER_CLICKHOUSE_USER="${{ secrets.CLICKHOUSE_USER }}" \
+          CONSUMER_CLICKHOUSE_PASSWORD="${{ secrets.CLICKHOUSE_PASSWORD }}" \
+          --service-id ${{ secrets.RAILWAY_CONSUMER_SERVICE_ID }}
+
+        railway up --service-id ${{ secrets.RAILWAY_CONSUMER_SERVICE_ID }}
+
+  deploy-status:
+    needs: [deploy-producer, deploy-consumer]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Comment deployment status
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const { context, core } = require('@actions/github');
+
+          if (context.payload.pull_request) {
+            core.info('This is a pull request, skipping status comment');
+            return;
+          }
+
+          const comment = `🚀 **Railway Deployment Complete**
+
+          **Producer Service**: ✅ Deployed
+          **Consumer Service**: ✅ Deployed
+
+          **Services**:
+          - Producer: https://railway.app/project/${{ env.RAILWAY_PROJECT_ID }}/service/${{ secrets.RAILWAY_PRODUCER_SERVICE_ID }}
+          - Consumer: https://railway.app/project/${{ env.RAILWAY_PROJECT_ID }}/service/${{ secrets.RAILWAY_CONSUMER_SERVICE_ID }}
+
+          **Next Steps**:
+          1. Monitor service health in Railway dashboard
+          2. Check ClickHouse for incoming data
+          3. View real-time analytics in Grafana
+
+          🤖 Generated with [Claude Code](https://claude.ai/code)
+
+          Co-Authored-By: Claude <noreply@anthropic.com>`;
+
+          const issue_number = context.issue.number;
+
+          if (issue_number) {
+            github.rest.issues.createComment({
+              issue_number: issue_number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+          }

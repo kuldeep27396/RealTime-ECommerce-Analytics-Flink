@@ -1,0 +1,13 @@
+[build]
+command = "uv sync --extra producer --frozen"
+
+[deploy]
+startCommand = "uv run python src/main.py"
+
+[deploy.env]
+PYTHONPATH = "/app"
+PYTHONUNBUFFERED = "1"
+LOG_LEVEL = "INFO"
+
+[build.env]
+UV_LOCKED = "true"

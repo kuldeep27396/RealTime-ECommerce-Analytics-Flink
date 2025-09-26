@@ -1,0 +1,32 @@
+# Confluent Cloud Configuration
+# Fill these values from your Confluent Cloud dashboard
+
+# From Cluster Settings → Connection details
+BOOTSTRAP_SERVERS = "pkc-41p56.asia-south1.gcp.confluent.cloud:9092"
+
+# From API keys section - SET THESE VIA ENVIRONMENT VARIABLES
+API_KEY = "your-api-key-here"
+API_SECRET = "your-api-secret-here"
+
+# Topic name (should match what you created in Confluent Cloud)
+TOPIC_NAME = "clickstream_ecommerce_kuldeep_pal"
+
+# API Configuration
+API_URL = "https://clickstream-datagenerator-production.up.railway.app/stream/interactions"
+API_RATE = 10000  # events per second
+API_DURATION = 60  # duration in seconds
+
+# Producer configuration
+PRODUCER_CONFIG = {
+    'bootstrap_servers': BOOTSTRAP_SERVERS,
+    'security_protocol': 'SASL_SSL',
+    'sasl_mechanism': 'PLAIN',
+    'sasl_plain_username': API_KEY,
+    'sasl_plain_password': API_SECRET,
+    'value_serializer': lambda v: json.dumps(v).encode('utf-8'),
+    'acks': 'all',
+    'retries': 3,
+    'max_in_flight_requests_per_connection': 1,
+    'request_timeout_ms': 30000,
+    'retry_backoff_ms': 100
+}
