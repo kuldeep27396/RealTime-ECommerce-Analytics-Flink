@@ -9,7 +9,7 @@ dependencies = [
     "python-dotenv==1.0.1",
     "pydantic==2.8.2",
     "pydantic-settings==2.8.1",
-    "apache-flink==1.18.0",
+    "clickhouse-connect==0.6.21",
 ]
 
 [project.scripts]

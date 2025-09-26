@@ -5,7 +5,8 @@ Simple configuration for consumer
 import os
 from typing import Optional
 
-from pydantic import BaseSettings, Field
+from pydantic_settings import BaseSettings
+from pydantic import Field
 
 
 class Config(BaseSettings):
@@ -18,12 +19,18 @@ class Config(BaseSettings):
     KAFKA_API_KEY: str = Field(..., env="KAFKA_API_KEY")
     KAFKA_API_SECRET: str = Field(..., env="KAFKA_API_SECRET")
 
-    # Flink Configuration
-    FLINK_PARALLELISM: int = Field(default=1, env="FLINK_PARALLELISM")
+    # ClickHouse Configuration
+    CLICKHOUSE_HOST: str = Field(..., env="CLICKHOUSE_HOST")
+    CLICKHOUSE_PORT: int = Field(..., env="CLICKHOUSE_PORT")
+    CLICKHOUSE_DATABASE: str = Field(..., env="CLICKHOUSE_DATABASE")
+    CLICKHOUSE_USER: str = Field(..., env="CLICKHOUSE_USER")
+    CLICKHOUSE_PASSWORD: str = Field(..., env="CLICKHOUSE_PASSWORD")
+    CLICKHOUSE_SECURE: bool = Field(default=True, env="CLICKHOUSE_SECURE")
 
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 # Global config instance

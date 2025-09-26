@@ -2,7 +2,8 @@
 Simple configuration for producer
 """
 
-from pydantic import BaseSettings, Field
+from pydantic_settings import BaseSettings
+from pydantic import Field
 
 
 class Config(BaseSettings):
@@ -20,6 +21,7 @@ class Config(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 
 config = Config()

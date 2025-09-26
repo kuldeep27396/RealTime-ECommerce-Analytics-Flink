@@ -15,20 +15,29 @@ def main():
     print(f"Topic: {config.KAFKA_TOPIC}")
     print(f"API: {config.API_URL}")
 
-    # Setup Kafka producer
+    # Setup Kafka producer with optimized settings for high throughput
     producer = KafkaProducer(
         bootstrap_servers=config.KAFKA_BOOTSTRAP_SERVERS,
         security_protocol='SASL_SSL',
         sasl_mechanism='PLAIN',
         sasl_plain_username=config.KAFKA_API_KEY,
         sasl_plain_password=config.KAFKA_API_SECRET,
-        value_serializer=lambda v: json.dumps(v).encode('utf-8')
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+        batch_size=16384,  # 16KB batch size
+        linger_ms=5,       # Wait up to 5ms to batch messages
+        compression_type='gzip',  # Compress messages
+        max_in_flight_requests_per_connection=10,  # Allow more in-flight requests
+        acks=1,           # Only wait for leader ack
+        retries=3,        # Retry 3 times
+        buffer_memory=33554432,  # 32MB buffer
+        max_block_ms=10000  # Block up to 10 seconds
     )
 
     # Fetch data from API
-    url = f"{config.API_URL}?rate=10000&duration=60"
+    url = f"{config.API_URL}?rate=50000&duration=3600"
     sent_count = 0
     start_time = time.time()
+
 
     try:
         response = requests.get(url, stream=True)
