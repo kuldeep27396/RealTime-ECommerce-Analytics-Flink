@@ -7,21 +7,26 @@ Learning: This demonstrates:
 - Query optimization patterns
 - Connection management
 """
+
 import time
 from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
+
 import structlog
 
 try:
     from clickhouse_connect import get_client
     from clickhouse_driver import Client
+
     CLICKHOUSE_AVAILABLE = True
 except ImportError:
     CLICKHOUSE_AVAILABLE = False
-    print("Warning: ClickHouse libraries not available. Install with: pip install clickhouse-connect clickhouse-driver")
+    print(
+        "Warning: ClickHouse libraries not available. Install with: pip install clickhouse-connect clickhouse-driver"
+    )
 
 from .config import config
-from .models import TimeWindowMetrics, FunnelMetrics, RealTimeMetrics
+from .models import FunnelMetrics, RealTimeMetrics, TimeWindowMetrics
 
 # Configure structured logging
 logger = structlog.get_logger(__name__)
@@ -60,7 +65,7 @@ class ClickHouseManager:
                     port=config.CLICKHOUSE_PORT,
                     username=config.CLICKHOUSE_USER,
                     password=config.CLICKHOUSE_PASSWORD,
-                    database=config.CLICKHOUSE_DATABASE
+                    database=config.CLICKHOUSE_DATABASE,
                 )
 
                 # clickhouse-driver for compatibility
@@ -69,7 +74,7 @@ class ClickHouseManager:
                     port=config.CLICKHOUSE_PORT,
                     user=config.CLICKHOUSE_USER,
                     password=config.CLICKHOUSE_PASSWORD,
-                    database=config.CLICKHOUSE_DATABASE
+                    database=config.CLICKHOUSE_DATABASE,
                 )
 
                 # Test connection
@@ -82,7 +87,7 @@ class ClickHouseManager:
             except Exception as e:
                 logger.error(f"ClickHouse connection attempt {attempt + 1} failed: {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    time.sleep(2**attempt)  # Exponential backoff
 
         logger.error("❌ Failed to connect to ClickHouse")
 
@@ -218,18 +223,20 @@ class ClickHouseManager:
             # Learning: Use batch insertion for better performance
             data = []
             for metric in metrics:
-                data.append((
-                    metric.get('window_start', datetime.now()),
-                    metric.get('window_end', datetime.now()),
-                    metric.get('metric_name', 'unknown'),
-                    metric.get('metric_value', 0),
-                    metric.get('product_category', 'unknown'),
-                    metric.get('event_type', 'unknown'),
-                    metric.get('device_type', 'unknown'),
-                    datetime.now(),
-                    metric.get('revenue', 0.0),
-                    metric.get('user_count', 0)
-                ))
+                data.append(
+                    (
+                        metric.get("window_start", datetime.now()),
+                        metric.get("window_end", datetime.now()),
+                        metric.get("metric_name", "unknown"),
+                        metric.get("metric_value", 0),
+                        metric.get("product_category", "unknown"),
+                        metric.get("event_type", "unknown"),
+                        metric.get("device_type", "unknown"),
+                        datetime.now(),
+                        metric.get("revenue", 0.0),
+                        metric.get("user_count", 0),
+                    )
+                )
 
             insert_sql = f"""
             INSERT INTO {config.CLICKHOUSE_DATABASE}.ecommerce_analytics
@@ -256,24 +263,26 @@ class ClickHouseManager:
         try:
             data = []
             for event in events:
-                data.append((
-                    datetime.fromtimestamp(event.get('timestamp', 0) / 1000),
-                    event.get('user_id', ''),
-                    event.get('session_id', ''),
-                    event.get('event_type', ''),
-                    event.get('product_id', ''),
-                    event.get('product_category', ''),
-                    float(event.get('price', 0.0)),
-                    int(event.get('quantity', 1)),
-                    event.get('source', ''),
-                    event.get('device_type', ''),
-                    float(event.get('revenue', 0.0)),
-                    int(event.get('hour_of_day', 0)),
-                    int(event.get('day_of_week', 0)),
-                    1 if event.get('is_weekend', False) else 0,
-                    event.get('price_category', ''),
-                    datetime.now()
-                ))
+                data.append(
+                    (
+                        datetime.fromtimestamp(event.get("timestamp", 0) / 1000),
+                        event.get("user_id", ""),
+                        event.get("session_id", ""),
+                        event.get("event_type", ""),
+                        event.get("product_id", ""),
+                        event.get("product_category", ""),
+                        float(event.get("price", 0.0)),
+                        int(event.get("quantity", 1)),
+                        event.get("source", ""),
+                        event.get("device_type", ""),
+                        float(event.get("revenue", 0.0)),
+                        int(event.get("hour_of_day", 0)),
+                        int(event.get("day_of_week", 0)),
+                        1 if event.get("is_weekend", False) else 0,
+                        event.get("price_category", ""),
+                        datetime.now(),
+                    )
+                )
 
             insert_sql = f"""
             INSERT INTO {config.CLICKHOUSE_DATABASE}.raw_clickstream_events
@@ -315,13 +324,13 @@ class ClickHouseManager:
             if result and result.result_rows:
                 row = result.result_rows[0]
                 return {
-                    'total_events': row[0],
-                    'unique_users': row[1],
-                    'total_revenue': row[2],
-                    'avg_order_value': row[3],
-                    'unique_products': row[4],
-                    'active_sessions': row[5],
-                    'last_update': row[6]
+                    "total_events": row[0],
+                    "unique_users": row[1],
+                    "total_revenue": row[2],
+                    "avg_order_value": row[3],
+                    "unique_products": row[4],
+                    "active_sessions": row[5],
+                    "last_update": row[6],
                 }
 
         except Exception as e:
@@ -357,13 +366,15 @@ class ClickHouseManager:
 
             if result and result.result_rows:
                 for row in result.result_rows:
-                    funnel_data.append({
-                        'hour': row[0],
-                        'views': row[1],
-                        'add_to_carts': row[2],
-                        'purchases': row[3],
-                        'funnel_start': row[4]
-                    })
+                    funnel_data.append(
+                        {
+                            "hour": row[0],
+                            "views": row[1],
+                            "add_to_carts": row[2],
+                            "purchases": row[3],
+                            "funnel_start": row[4],
+                        }
+                    )
 
             return funnel_data
 
@@ -371,7 +382,9 @@ class ClickHouseManager:
             logger.error(f"Failed to get funnel data: {e}")
             return []
 
-    def get_top_products(self, hours: int = 24, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_top_products(
+        self, hours: int = 24, limit: int = 10
+    ) -> List[Dict[str, Any]]:
         """
         Get top performing products
 
@@ -403,14 +416,16 @@ class ClickHouseManager:
 
             if result and result.result_rows:
                 for row in result.result_rows:
-                    products.append({
-                        'product_id': row[0],
-                        'product_category': row[1],
-                        'views': row[2],
-                        'purchases': row[3],
-                        'revenue': row[4],
-                        'conversion_rate': row[5]
-                    })
+                    products.append(
+                        {
+                            "product_id": row[0],
+                            "product_category": row[1],
+                            "views": row[2],
+                            "purchases": row[3],
+                            "revenue": row[4],
+                            "conversion_rate": row[5],
+                        }
+                    )
 
             return products
 
@@ -443,11 +458,11 @@ class ClickHouseManager:
             if result and result.result_rows:
                 row = result.result_rows[0]
                 return {
-                    'total_users': row[0],
-                    'avg_events_per_user': row[1],
-                    'avg_purchase_value': row[2],
-                    'median_events_per_user': row[3],
-                    'revenue_per_user': row[4]
+                    "total_users": row[0],
+                    "avg_events_per_user": row[1],
+                    "avg_purchase_value": row[2],
+                    "median_events_per_user": row[3],
+                    "revenue_per_user": row[4],
                 }
 
         except Exception as e:
@@ -486,7 +501,11 @@ class ClickHouseManager:
 
         try:
             stats = {}
-            tables = ['ecommerce_analytics', 'raw_clickstream_events', 'aggregated_metrics']
+            tables = [
+                "ecommerce_analytics",
+                "raw_clickstream_events",
+                "aggregated_metrics",
+            ]
 
             for table in tables:
                 table_name = f"{config.CLICKHOUSE_DATABASE}.{table}"

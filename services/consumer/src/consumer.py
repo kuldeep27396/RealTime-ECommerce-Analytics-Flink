@@ -1,18 +1,20 @@
 """
 Main consumer service orchestrating Flink processing and ClickHouse storage
 """
+
+import json
 import signal
 import sys
-import time
 import threading
-import json
+import time
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
 import structlog
 
+from .clickhouse_manager import ClickHouseManager
 from .config import config
 from .flink_processor import FlinkClickstreamProcessor
-from .clickhouse_manager import ClickHouseManager
 from .models import RealTimeMetrics
 
 # Configure structured logging
@@ -26,7 +28,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ],
     wrapper_class=structlog.stdlib.BoundLogger,
     context_class=dict,
@@ -55,10 +57,10 @@ class ClickstreamConsumer:
         self.running = False
         self.start_time = datetime.now()
         self.metrics = {
-            'events_processed': 0,
-            'clickhouse_inserts': 0,
-            'errors': 0,
-            'last_activity': datetime.now()
+            "events_processed": 0,
+            "clickhouse_inserts": 0,
+            "errors": 0,
+            "last_activity": datetime.now(),
         }
 
         # Learning: Threading for different concerns
@@ -95,20 +97,24 @@ class ClickstreamConsumer:
 
     def start_flink_processing(self):
         """Start Flink processing in a separate thread"""
+
         def flink_worker():
             try:
                 logger.info("🚀 Starting Flink processing thread")
                 self.flink_processor.execute_processing()
             except Exception as e:
                 logger.error(f"Flink processing failed: {e}")
-                self.metrics['errors'] += 1
+                self.metrics["errors"] += 1
 
-        self.flink_thread = threading.Thread(target=flink_worker, name="flink-processor")
+        self.flink_thread = threading.Thread(
+            target=flink_worker, name="flink-processor"
+        )
         self.flink_thread.daemon = True
         self.flink_thread.start()
 
     def start_monitoring(self):
         """Start monitoring thread for metrics collection"""
+
         def monitoring_worker():
             logger.info("📊 Starting monitoring thread")
 
@@ -130,12 +136,15 @@ class ClickstreamConsumer:
                     logger.error(f"Monitoring error: {e}")
                     time.sleep(60)  # Wait longer on error
 
-        self.monitoring_thread = threading.Thread(target=monitoring_worker, name="monitoring")
+        self.monitoring_thread = threading.Thread(
+            target=monitoring_worker, name="monitoring"
+        )
         self.monitoring_thread.daemon = True
         self.monitoring_thread.start()
 
     def start_health_server(self):
         """Start health check server (simplified version)"""
+
         def health_worker():
             logger.info("🏥 Starting health check thread")
 
@@ -161,33 +170,47 @@ class ClickstreamConsumer:
         try:
             # Learning: Collect metrics from ClickHouse if available
             if self.clickhouse_manager and self.clickhouse_manager.connected:
-                dashboard_data = self.clickhouse_manager.get_real_time_dashboard(minutes=1)
+                dashboard_data = self.clickhouse_manager.get_real_time_dashboard(
+                    minutes=1
+                )
                 if dashboard_data:
-                    logger.info("📈 Real-time metrics", **{
-                        'events_last_minute': dashboard_data.get('total_events', 0),
-                        'active_users': dashboard_data.get('unique_users', 0),
-                        'revenue': f"${dashboard_data.get('total_revenue', 0):.2f}",
-                        'avg_order_value': f"${dashboard_data.get('avg_order_value', 0):.2f}"
-                    })
+                    logger.info(
+                        "📈 Real-time metrics",
+                        **{
+                            "events_last_minute": dashboard_data.get("total_events", 0),
+                            "active_users": dashboard_data.get("unique_users", 0),
+                            "revenue": f"${dashboard_data.get('total_revenue', 0):.2f}",
+                            "avg_order_value": f"${dashboard_data.get('avg_order_value', 0):.2f}",
+                        },
+                    )
 
                     # Update internal metrics
-                    self.metrics['events_processed'] += dashboard_data.get('total_events', 0)
+                    self.metrics["events_processed"] += dashboard_data.get(
+                        "total_events", 0
+                    )
 
             # Learning: Log service health
             uptime = (datetime.now() - self.start_time).total_seconds()
-            logger.info("🔧 Service health", **{
-                'uptime_seconds': uptime,
-                'total_events_processed': self.metrics['events_processed'],
-                'clickhouse_inserts': self.metrics['clickhouse_inserts'],
-                'errors': self.metrics['errors'],
-                'flink_status': 'running' if self.flink_thread and self.flink_thread.is_alive() else 'stopped'
-            })
+            logger.info(
+                "🔧 Service health",
+                **{
+                    "uptime_seconds": uptime,
+                    "total_events_processed": self.metrics["events_processed"],
+                    "clickhouse_inserts": self.metrics["clickhouse_inserts"],
+                    "errors": self.metrics["errors"],
+                    "flink_status": (
+                        "running"
+                        if self.flink_thread and self.flink_thread.is_alive()
+                        else "stopped"
+                    ),
+                },
+            )
 
-            self.metrics['last_activity'] = datetime.now()
+            self.metrics["last_activity"] = datetime.now()
 
         except Exception as e:
             logger.error(f"Error collecting metrics: {e}")
-            self.metrics['errors'] += 1
+            self.metrics["errors"] += 1
 
     def _health_check(self):
         """Perform health checks on all components"""
@@ -202,7 +225,7 @@ class ClickstreamConsumer:
             health_issues.append("ClickHouse not connected")
 
         # Check error rate
-        if self.metrics['errors'] > 10:
+        if self.metrics["errors"] > 10:
             health_issues.append(f"High error rate: {self.metrics['errors']} errors")
 
         if health_issues:
@@ -225,9 +248,9 @@ class ClickstreamConsumer:
                 logger.info("📊 Table statistics", **table_stats)
 
             # Reset error counter if it's getting too high
-            if self.metrics['errors'] > 100:
+            if self.metrics["errors"] > 100:
                 logger.info("Resetting error counter after reaching threshold")
-                self.metrics['errors'] = 0
+                self.metrics["errors"] = 0
 
         except Exception as e:
             logger.error(f"Maintenance tasks failed: {e}")
@@ -242,7 +265,7 @@ class ClickstreamConsumer:
             status_issues.append("flink_down")
         if self.clickhouse_manager and not self.clickhouse_manager.connected:
             status_issues.append("clickhouse_down")
-        if self.metrics['errors'] > 5:
+        if self.metrics["errors"] > 5:
             status_issues.append("high_errors")
 
         if status_issues:
@@ -251,26 +274,37 @@ class ClickstreamConsumer:
             overall_status = "healthy"
 
         return {
-            'status': overall_status,
-            'timestamp': datetime.now(),
-            'uptime_seconds': uptime,
-            'components': {
-                'flink': 'running' if self.flink_thread and self.flink_thread.is_alive() else 'stopped',
-                'clickhouse': 'connected' if self.clickhouse_manager and self.clickhouse_manager.connected else 'disconnected'
+            "status": overall_status,
+            "timestamp": datetime.now(),
+            "uptime_seconds": uptime,
+            "components": {
+                "flink": (
+                    "running"
+                    if self.flink_thread and self.flink_thread.is_alive()
+                    else "stopped"
+                ),
+                "clickhouse": (
+                    "connected"
+                    if self.clickhouse_manager and self.clickhouse_manager.connected
+                    else "disconnected"
+                ),
             },
-            'metrics': self.metrics.copy(),
-            'issues': status_issues
+            "metrics": self.metrics.copy(),
+            "issues": status_issues,
         }
 
     def start(self):
         """Start the complete consumer service"""
         logger.info("🚀 Starting Clickstream Consumer Service")
-        logger.info("🔧 Configuration", **{
-            'kafka_topic': config.KAFKA_TOPIC,
-            'flink_parallelism': config.FLINK_PARALLELISM,
-            'clickhouse_host': config.CLICKHOUSE_HOST,
-            'window_size_minutes': config.WINDOW_SIZE_MINUTES
-        })
+        logger.info(
+            "🔧 Configuration",
+            **{
+                "kafka_topic": config.KAFKA_TOPIC,
+                "flink_parallelism": config.FLINK_PARALLELISM,
+                "clickhouse_host": config.CLICKHOUSE_HOST,
+                "window_size_minutes": config.WINDOW_SIZE_MINUTES,
+            },
+        )
 
         try:
             self.running = True
@@ -333,43 +367,52 @@ class ClickstreamConsumer:
         """Get analytics summary for dashboards"""
         try:
             summary = {
-                'service_health': self.get_health_status(),
-                'timestamp': datetime.now()
+                "service_health": self.get_health_status(),
+                "timestamp": datetime.now(),
             }
 
             # Add real-time metrics from ClickHouse
             if self.clickhouse_manager and self.clickhouse_manager.connected:
                 # Real-time dashboard data
-                dashboard_data = self.clickhouse_manager.get_real_time_dashboard(minutes=5)
-                summary['real_time'] = dashboard_data
+                dashboard_data = self.clickhouse_manager.get_real_time_dashboard(
+                    minutes=5
+                )
+                summary["real_time"] = dashboard_data
 
                 # Conversion funnel
                 funnel_data = self.clickhouse_manager.get_conversion_funnel(hours=1)
                 if funnel_data:
                     latest_funnel = funnel_data[-1] if funnel_data else {}
-                    summary['conversion_funnel'] = {
-                        'views': latest_funnel.get('views', 0),
-                        'add_to_carts': latest_funnel.get('add_to_carts', 0),
-                        'purchases': latest_funnel.get('purchases', 0),
-                        'conversion_rate': (
-                            (latest_funnel.get('purchases', 0) / latest_funnel.get('views', 0) * 100)
-                            if latest_funnel.get('views', 0) > 0 else 0
-                        )
+                    summary["conversion_funnel"] = {
+                        "views": latest_funnel.get("views", 0),
+                        "add_to_carts": latest_funnel.get("add_to_carts", 0),
+                        "purchases": latest_funnel.get("purchases", 0),
+                        "conversion_rate": (
+                            (
+                                latest_funnel.get("purchases", 0)
+                                / latest_funnel.get("views", 0)
+                                * 100
+                            )
+                            if latest_funnel.get("views", 0) > 0
+                            else 0
+                        ),
                     }
 
                 # Top products
-                top_products = self.clickhouse_manager.get_top_products(hours=1, limit=5)
-                summary['top_products'] = top_products
+                top_products = self.clickhouse_manager.get_top_products(
+                    hours=1, limit=5
+                )
+                summary["top_products"] = top_products
 
                 # User behavior
                 behavior = self.clickhouse_manager.get_user_behavior_analysis(hours=1)
-                summary['user_behavior'] = behavior
+                summary["user_behavior"] = behavior
 
             return summary
 
         except Exception as e:
             logger.error(f"Error getting analytics summary: {e}")
-            return {'error': str(e)}
+            return {"error": str(e)}
 
 
 def main():

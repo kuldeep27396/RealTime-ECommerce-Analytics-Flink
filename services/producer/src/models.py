@@ -1,14 +1,17 @@
 """
 Data models for clickstream events with validation
 """
+
 from datetime import datetime
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field, validator
 from enum import Enum
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, Field, validator
 
 
 class InteractionType(str, Enum):
     """Types of user interactions"""
+
     VIEW = "view"
     ADD_TO_CART = "add_to_cart"
     REMOVE_FROM_CART = "remove_from_cart"
@@ -19,6 +22,7 @@ class InteractionType(str, Enum):
 
 class DeviceType(str, Enum):
     """Device types"""
+
     MOBILE = "mobile"
     DESKTOP = "desktop"
     TABLET = "tablet"
@@ -26,12 +30,14 @@ class DeviceType(str, Enum):
 
 class SourceType(str, Enum):
     """Source types"""
+
     MOBILE_APP = "mobile_app"
     WEBSITE = "website"
 
 
 class RawClickstreamEvent(BaseModel):
     """Raw event from API"""
+
     interaction_id: str
     user_id: str
     product_id: str
@@ -45,11 +51,11 @@ class RawClickstreamEvent(BaseModel):
     page_url: str
     referrer: Optional[str] = None
 
-    @validator('timestamp')
+    @validator("timestamp")
     def validate_timestamp(cls, v):
         try:
             # Validate timestamp format
-            datetime.fromisoformat(v.replace('Z', '+00:00'))
+            datetime.fromisoformat(v.replace("Z", "+00:00"))
             return v
         except ValueError:
             raise ValueError("Invalid timestamp format")
@@ -57,6 +63,7 @@ class RawClickstreamEvent(BaseModel):
 
 class TransformedClickstreamEvent(BaseModel):
     """Transformed event for Kafka with Flink-compatible schema"""
+
     user_id: str
     session_id: str
     timestamp: int  # Unix timestamp in milliseconds
@@ -79,9 +86,9 @@ class TransformedClickstreamEvent(BaseModel):
     is_weekend: bool
     price_category: str  # budget, mid-range, premium, luxury
 
-    @validator('price_category')
+    @validator("price_category")
     def categorize_price(cls, v, values):
-        price = values.get('price', 0)
+        price = values.get("price", 0)
         if price < 20:
             return "budget"
         elif price < 50:
@@ -94,6 +101,7 @@ class TransformedClickstreamEvent(BaseModel):
 
 class ProducerMetrics(BaseModel):
     """Producer metrics for monitoring"""
+
     events_processed: int = 0
     events_failed: int = 0
     bytes_produced: int = 0
@@ -115,6 +123,7 @@ class ProducerMetrics(BaseModel):
 
 class HealthStatus(BaseModel):
     """Health check response"""
+
     status: str  # healthy, degraded, unhealthy
     timestamp: datetime
     uptime_seconds: float

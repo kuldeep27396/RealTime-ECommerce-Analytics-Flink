@@ -1,12 +1,18 @@
 """
 Event transformation logic with detailed learning comments
 """
+
 import re
 from datetime import datetime
-from typing import Dict, Any
-from urllib.parse import urlparse, parse_qs
+from typing import Any, Dict
+from urllib.parse import parse_qs, urlparse
 
-from models import RawClickstreamEvent, TransformedClickstreamEvent, DeviceType, SourceType
+from models import (
+    DeviceType,
+    RawClickstreamEvent,
+    SourceType,
+    TransformedClickstreamEvent,
+)
 
 
 class ClickstreamTransformer:
@@ -14,8 +20,8 @@ class ClickstreamTransformer:
 
     def __init__(self):
         # Learning: Pre-compile regex for better performance
-        self.product_category_pattern = re.compile(r'ProductCategory\.([A-Z_]+)')
-        self.device_pattern = re.compile(r'(mobile|desktop|tablet)', re.IGNORECASE)
+        self.product_category_pattern = re.compile(r"ProductCategory\.([A-Z_]+)")
+        self.device_pattern = re.compile(r"(mobile|desktop|tablet)", re.IGNORECASE)
 
     def transform_event(self, raw_event: Dict[str, Any]) -> TransformedClickstreamEvent:
         """
@@ -62,7 +68,7 @@ class ClickstreamTransformer:
             hour_of_day=hour_of_day,
             day_of_week=day_of_week,
             is_weekend=is_weekend,
-            price_category=self._categorize_price(price)
+            price_category=self._categorize_price(price),
         )
 
     def _parse_timestamp(self, timestamp_str: str) -> int:
@@ -73,8 +79,8 @@ class ClickstreamTransformer:
         """
         try:
             # Handle 'Z' timezone indicator
-            if timestamp_str.endswith('Z'):
-                timestamp_str = timestamp_str[:-1] + '+00:00'
+            if timestamp_str.endswith("Z"):
+                timestamp_str = timestamp_str[:-1] + "+00:00"
 
             dt = datetime.fromisoformat(timestamp_str)
             return int(dt.timestamp() * 1000)
@@ -100,7 +106,7 @@ class ClickstreamTransformer:
 
         Learning: Business logic based on device type
         """
-        if 'mobile' in device_info.lower():
+        if "mobile" in device_info.lower():
             return SourceType.MOBILE_APP
         return SourceType.WEBSITE
 
@@ -116,7 +122,7 @@ class ClickstreamTransformer:
             if match:
                 category = match.group(1)
                 # Convert SNAKE_CASE to Title Case
-                return category.replace('_', ' ').title()
+                return category.replace("_", " ").title()
         except Exception as e:
             print(f"Warning: Failed to extract category from URL '{page_url}': {e}")
 
@@ -137,7 +143,9 @@ class ClickstreamTransformer:
         else:
             return "luxury"
 
-    def batch_transform(self, raw_events: list[Dict[str, Any]]) -> list[TransformedClickstreamEvent]:
+    def batch_transform(
+        self, raw_events: list[Dict[str, Any]]
+    ) -> list[TransformedClickstreamEvent]:
         """
         Transform multiple events in batch
 
@@ -155,7 +163,9 @@ class ClickstreamTransformer:
                 print(f"Error transforming event {i}: {e}")
 
         if errors:
-            print(f"Transformation errors: {len(errors)} out of {len(raw_events)} events")
+            print(
+                f"Transformation errors: {len(errors)} out of {len(raw_events)} events"
+            )
 
         return transformed
 
@@ -172,10 +182,16 @@ class AdvancedTransformer(ClickstreamTransformer):
     def __init__(self):
         super().__init__()
         # Learning: Add more sophisticated patterns
-        self.user_session_pattern = re.compile(r'user_([a-f0-9]+)')
+        self.user_session_pattern = re.compile(r"user_([a-f0-9]+)")
         self.bot_patterns = [
-            r'bot', r'crawler', r'spider', r'scanner',
-            r'test', r'dev', r'selenium', r'phantom'
+            r"bot",
+            r"crawler",
+            r"spider",
+            r"scanner",
+            r"test",
+            r"dev",
+            r"selenium",
+            r"phantom",
         ]
 
     def is_bot_user_agent(self, user_agent: str) -> bool:
@@ -185,12 +201,12 @@ class AdvancedTransformer(ClickstreamTransformer):
 
     def extract_user_segment(self, user_id: str) -> str:
         """Segment users based on ID patterns"""
-        if user_id.startswith('test_'):
-            return 'test'
+        if user_id.startswith("test_"):
+            return "test"
         elif len(user_id) > 30:
-            return 'premium'
+            return "premium"
         else:
-            return 'regular'
+            return "regular"
 
     def transform_event(self, raw_event: Dict[str, Any]) -> TransformedClickstreamEvent:
         """Override to add more enrichment"""
@@ -199,9 +215,9 @@ class AdvancedTransformer(ClickstreamTransformer):
         # Learning: Add more sophisticated enrichment
         # These would be added to the model in a real implementation
         enrichment = {
-            'is_bot': self.is_bot_user_agent(base_event.user_agent),
-            'user_segment': self.extract_user_segment(base_event.user_id),
-            'session_length_estimate': self._estimate_session_length(base_event)
+            "is_bot": self.is_bot_user_agent(base_event.user_agent),
+            "user_segment": self.extract_user_segment(base_event.user_id),
+            "session_length_estimate": self._estimate_session_length(base_event),
         }
 
         # For now, we'll just return the base event
@@ -211,9 +227,9 @@ class AdvancedTransformer(ClickstreamTransformer):
     def _estimate_session_length(self, event: TransformedClickstreamEvent) -> int:
         """Estimate session length based on event patterns"""
         # Learning: Simple heuristic based on event type
-        if event.event_type == 'purchase':
+        if event.event_type == "purchase":
             return 300  # Purchases typically take longer
-        elif event.event_type == 'view':
-            return 30   # Views are typically quick
+        elif event.event_type == "view":
+            return 30  # Views are typically quick
         else:
-            return 60   # Default estimate
+            return 60  # Default estimate

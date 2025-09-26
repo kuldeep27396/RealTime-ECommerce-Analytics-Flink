@@ -1,14 +1,18 @@
 """
 Data models for consumer service with analytical extensions
 """
+
 from datetime import datetime
-from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field, validator
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field, validator
+from pydantic.types import DateTime, String, Float32, UInt16, UInt8, LowCardinality
 
 
 class EventType(str, Enum):
     """Event types for processing"""
+
     PAGE_VIEW = "page_view"
     PRODUCT_VIEW = "product_view"
     ADD_TO_CART = "add_to_cart"
@@ -19,6 +23,7 @@ class EventType(str, Enum):
 
 class DeviceType(str, Enum):
     """Device types"""
+
     MOBILE = "mobile"
     DESKTOP = "desktop"
     TABLET = "tablet"
@@ -26,12 +31,14 @@ class DeviceType(str, Enum):
 
 class SourceType(str, Enum):
     """Source types"""
+
     MOBILE_APP = "mobile_app"
     WEBSITE = "website"
 
 
 class ClickstreamEvent(BaseModel):
     """Clickstream event model matching Kafka schema"""
+
     user_id: str
     session_id: str
     timestamp: int  # Unix timestamp in milliseconds
@@ -52,7 +59,7 @@ class ClickstreamEvent(BaseModel):
     is_weekend: bool
     price_category: str
 
-    @validator('event_type')
+    @validator("event_type")
     def validate_event_type(cls, v):
         valid_types = [e.value for e in EventType]
         if v not in valid_types:
@@ -62,6 +69,7 @@ class ClickstreamEvent(BaseModel):
 
 class UserSessionMetrics(BaseModel):
     """User session analytics"""
+
     session_id: str
     user_id: str
     event_count: int
@@ -73,13 +81,14 @@ class UserSessionMetrics(BaseModel):
     first_event_time: datetime
     last_event_time: datetime
 
-    @validator('conversion_rate')
+    @validator("conversion_rate")
     def validate_conversion_rate(cls, v):
         return max(0.0, min(1.0, v))
 
 
 class ProductAnalytics(BaseModel):
     """Product performance metrics"""
+
     product_id: str
     product_category: str
     view_count: int
@@ -90,13 +99,14 @@ class ProductAnalytics(BaseModel):
     conversion_rate: float  # purchases / views
     popularity_score: float  # weighted score based on multiple metrics
 
-    @validator('conversion_rate')
+    @validator("conversion_rate")
     def validate_conversion_rate(cls, v):
         return max(0.0, min(1.0, v))
 
 
 class TimeWindowMetrics(BaseModel):
     """Time-based analytics"""
+
     window_start: datetime
     window_end: datetime
     total_events: int
@@ -107,14 +117,14 @@ class TimeWindowMetrics(BaseModel):
     device_distribution: Dict[str, float]  # device_type -> percentage
     event_type_distribution: Dict[str, float]  # event_type -> percentage
 
-    @validator('device_distribution')
+    @validator("device_distribution")
     def validate_device_distribution(cls, v):
         total = sum(v.values())
         if abs(total - 1.0) > 0.01:  # Allow small rounding errors
             raise ValueError("Device distribution must sum to 1.0")
         return v
 
-    @validator('event_type_distribution')
+    @validator("event_type_distribution")
     def validate_event_type_distribution(cls, v):
         total = sum(v.values())
         if abs(total - 1.0) > 0.01:
@@ -124,6 +134,7 @@ class TimeWindowMetrics(BaseModel):
 
 class RealTimeMetrics(BaseModel):
     """Real-time streaming metrics"""
+
     timestamp: datetime
     events_per_second: float
     users_per_second: float
@@ -133,13 +144,14 @@ class RealTimeMetrics(BaseModel):
     current_memory_usage_mb: float
     cpu_usage_percent: float
 
-    @validator('error_rate')
+    @validator("error_rate")
     def validate_error_rate(cls, v):
         return max(0.0, min(100.0, v))
 
 
 class FunnelMetrics(BaseModel):
     """Conversion funnel analytics"""
+
     window_start: datetime
     window_end: datetime
     product_views: int
@@ -149,21 +161,32 @@ class FunnelMetrics(BaseModel):
     @property
     def view_to_cart_rate(self) -> float:
         """Conversion rate from view to add to cart"""
-        return (self.add_to_carts / self.product_views * 100) if self.product_views > 0 else 0.0
+        return (
+            (self.add_to_carts / self.product_views * 100)
+            if self.product_views > 0
+            else 0.0
+        )
 
     @property
     def cart_to_purchase_rate(self) -> float:
         """Conversion rate from add to cart to purchase"""
-        return (self.purchases / self.add_to_carts * 100) if self.add_to_carts > 0 else 0.0
+        return (
+            (self.purchases / self.add_to_carts * 100) if self.add_to_carts > 0 else 0.0
+        )
 
     @property
     def overall_conversion_rate(self) -> float:
         """Overall conversion rate from view to purchase"""
-        return (self.purchases / self.product_views * 100) if self.product_views > 0 else 0.0
+        return (
+            (self.purchases / self.product_views * 100)
+            if self.product_views > 0
+            else 0.0
+        )
 
 
 class AnomalyDetection(BaseModel):
     """Anomaly detection results"""
+
     timestamp: datetime
     metric_name: str
     current_value: float
@@ -174,8 +197,8 @@ class AnomalyDetection(BaseModel):
 
 
 class ClickHouseRecord(BaseModel):
-    """Record for ClickHouse insertion"""
-    """Schema optimized for ClickHouse analytics"""
+    """Record for ClickHouse insertion - Schema optimized for ClickHouse analytics"""
+
     timestamp: DateTime
     user_id: String
     session_id: String
@@ -192,11 +215,11 @@ class ClickHouseRecord(BaseModel):
     is_weekend: UInt8
     price_category: LowCardinality(String)
     processing_time: DateTime
-    """
 
 
 class ConsumerHealth(BaseModel):
     """Consumer service health status"""
+
     status: str  # healthy, degraded, unhealthy
     timestamp: datetime
     kafka_lag_ms: int
@@ -209,6 +232,7 @@ class ConsumerHealth(BaseModel):
 # Learning: Advanced analytics models for machine learning integration
 class MLFeatures(BaseModel):
     """Features for machine learning models"""
+
     user_id: str
     session_id: str
     # Behavioral features
@@ -231,13 +255,14 @@ class MLFeatures(BaseModel):
     favorite_category: str
     price_sensitivity_score: float  # calculated from purchase history
 
-    @validator('price_sensitivity_score')
+    @validator("price_sensitivity_score")
     def validate_price_sensitivity(cls, v):
         return max(0.0, min(1.0, v))
 
 
 class PredictionResult(BaseModel):
     """Machine learning prediction results"""
+
     timestamp: datetime
     user_id: str
     session_id: str

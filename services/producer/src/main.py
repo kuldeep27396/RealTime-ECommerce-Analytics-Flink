@@ -1,6 +1,7 @@
 """
 Entry point for the producer service
 """
+
 import os
 import sys
 

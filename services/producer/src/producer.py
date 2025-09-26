@@ -1,23 +1,24 @@
 """
 Main producer service with robust error handling and monitoring
 """
+
 import json
-import time
-import threading
 import signal
 import sys
-from datetime import datetime
-from typing import List, Dict, Any, Optional
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 import requests
 import structlog
 from kafka import KafkaProducer
 from kafka.errors import KafkaError, NoBrokersAvailable
+from models import HealthStatus, ProducerMetrics, TransformedClickstreamEvent
+from transformer import ClickstreamTransformer
 
 from config import config
-from models import TransformedClickstreamEvent, ProducerMetrics, HealthStatus
-from transformer import ClickstreamTransformer
 
 # Configure structured logging
 structlog.configure(
@@ -30,7 +31,7 @@ structlog.configure(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
         structlog.processors.UnicodeDecoder(),
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ],
     wrapper_class=structlog.stdlib.BoundLogger,
     context_class=dict,
@@ -78,11 +79,11 @@ class ClickstreamProducer:
             try:
                 self.producer = KafkaProducer(
                     bootstrap_servers=config.KAFKA_BOOTSTRAP_SERVERS,
-                    security_protocol='SASL_SSL',
-                    sasl_mechanism='PLAIN',
+                    security_protocol="SASL_SSL",
+                    sasl_mechanism="PLAIN",
                     sasl_plain_username=config.KAFKA_API_KEY,
                     sasl_plain_password=config.KAFKA_API_SECRET,
-                    value_serializer=lambda v: json.dumps(v.__dict__).encode('utf-8'),
+                    value_serializer=lambda v: json.dumps(v.__dict__).encode("utf-8"),
                     acks=config.KAFKA_ACKS,
                     retries=config.KAFKA_RETRIES,
                     max_in_flight_requests_per_connection=config.KAFKA_MAX_IN_FLIGHT,
@@ -91,17 +92,19 @@ class ClickstreamProducer:
                     batch_size=config.BATCH_SIZE,
                     linger_ms=config.BATCH_TIMEOUT_MS,
                     # Learning: Compression for network efficiency
-                    compression_type='gzip',
+                    compression_type="gzip",
                     # Learning: Enable idempotent producer for exactly-once semantics
-                    enable_idempotence=True
+                    enable_idempotence=True,
                 )
                 logger.info("Kafka producer initialized successfully")
                 return
 
             except Exception as e:
-                logger.error(f"Failed to initialize Kafka producer (attempt {attempt + 1}/{max_retries}): {e}")
+                logger.error(
+                    f"Failed to initialize Kafka producer (attempt {attempt + 1}/{max_retries}): {e}"
+                )
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    time.sleep(2**attempt)  # Exponential backoff
                 else:
                     raise
 
@@ -139,10 +142,14 @@ class ClickstreamProducer:
 
             except Exception as e:
                 consecutive_errors += 1
-                logger.error(f"Error in processing loop (error {consecutive_errors}/{max_consecutive_errors}): {e}")
+                logger.error(
+                    f"Error in processing loop (error {consecutive_errors}/{max_consecutive_errors}): {e}"
+                )
 
                 if consecutive_errors >= max_consecutive_errors:
-                    logger.error("Maximum consecutive errors reached, stopping producer")
+                    logger.error(
+                        "Maximum consecutive errors reached, stopping producer"
+                    )
                     break
 
                 time.sleep(min(consecutive_errors * 2, 30))
@@ -152,10 +159,7 @@ class ClickstreamProducer:
     def _make_api_request(self) -> Optional[requests.Response]:
         """Make API request with proper error handling"""
         try:
-            params = {
-                'rate': config.API_RATE,
-                'duration': config.API_DURATION
-            }
+            params = {"rate": config.API_RATE, "duration": config.API_DURATION}
 
             logger.info(f"Making API request to {config.API_URL} with params: {params}")
 
@@ -163,7 +167,7 @@ class ClickstreamProducer:
                 config.API_URL,
                 params=params,
                 stream=True,
-                timeout=120  # 2 minute timeout
+                timeout=120,  # 2 minute timeout
             )
             response.raise_for_status()
 
@@ -187,7 +191,7 @@ class ClickstreamProducer:
 
                 if line:
                     try:
-                        raw_event = json.loads(line.decode('utf-8'))
+                        raw_event = json.loads(line.decode("utf-8"))
                         batch_events.append(raw_event)
 
                         # Learning: Process in batches for better performance
@@ -278,7 +282,7 @@ class ClickstreamProducer:
             status="healthy" if self.running else "stopped",
             timestamp=datetime.now(),
             uptime_seconds=uptime,
-            metrics=self.metrics
+            metrics=self.metrics,
         )
 
     def start(self):
@@ -287,7 +291,9 @@ class ClickstreamProducer:
             raise RuntimeError("Producer not initialized")
 
         logger.info("Starting Clickstream Producer Service")
-        logger.info(f"Configuration: API URL={config.API_URL}, Topic={config.KAFKA_TOPIC}")
+        logger.info(
+            f"Configuration: API URL={config.API_URL}, Topic={config.KAFKA_TOPIC}"
+        )
 
         try:
             self.fetch_and_process_stream()

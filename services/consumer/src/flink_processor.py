@@ -2,22 +2,23 @@
 Flink stream processor with comprehensive analytics transformations
 Designed for learning real-time data processing patterns
 """
-import os
+
 import json
+import os
 import time
 from datetime import datetime, timedelta
-from typing import Dict, List, Any
+from typing import Any, Dict, List
 
-from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.table import StreamTableEnvironment, EnvironmentSettings, DataTypes
-from pyflink.table.expressions import col, lit, row_number
-from pyflink.table.window import Tumble, Slide, Session
-from pyflink.table.udf import udf, udtf
 from pyflink.common import Row
 from pyflink.common.typeinfo import Types
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.table import DataTypes, EnvironmentSettings, StreamTableEnvironment
+from pyflink.table.expressions import col, lit, row_number
+from pyflink.table.udf import udf, udtf
+from pyflink.table.window import Session, Slide, Tumble
 
 from .config import config
-from .models import ClickstreamEvent, TimeWindowMetrics, FunnelMetrics
+from .models import ClickstreamEvent, FunnelMetrics, TimeWindowMetrics
 
 
 class FlinkClickstreamProcessor:
@@ -47,11 +48,15 @@ class FlinkClickstreamProcessor:
         if config.ENABLE_EXACTLY_ONCE:
             self.env.enable_checkpointing(config.FLINK_CHECKPOINT_INTERVAL)
             # Learning: Configure exactly-once semantics
-            self.env.get_checkpoint_config().set_preferred_checkpoint_location("file:///tmp/flink-checkpoints")
+            self.env.get_checkpoint_config().set_preferred_checkpoint_location(
+                "file:///tmp/flink-checkpoints"
+            )
 
         # Setup Table Environment
         settings = EnvironmentSettings.new_instance().in_streaming_mode().build()
-        self.t_env = StreamTableEnvironment.create(self.env, environment_settings=settings)
+        self.t_env = StreamTableEnvironment.create(
+            self.env, environment_settings=settings
+        )
 
         # Learning: Load required JARs for Kafka and ClickHouse connectivity
         self._load_jars()
@@ -171,7 +176,9 @@ class FlinkClickstreamProcessor:
             return "active_explorer"
 
     @udf(result_type=Types.DOUBLE())
-    def calculate_conversion_score(add_to_carts: int, purchases: int, views: int) -> float:
+    def calculate_conversion_score(
+        add_to_carts: int, purchases: int, views: int
+    ) -> float:
         """
         Calculate conversion score with smoothing
         Learning: Mathematical operations in UDFs
@@ -353,55 +360,81 @@ class FlinkClickstreamProcessor:
 
         Learning: Shows how to inspect data in Flink
         """
-        print("\\n" + "="*60)
+        print("\\n" + "=" * 60)
         print("📊 REAL-TIME ANALYTICS OUTPUT (Sample)")
-        print("="*60)
+        print("=" * 60)
 
         # Sample event counts
         print("\\n🔄 Real-time Event Counts:")
         try:
-            sample_counts = self.t_env.sql_query("""
+            sample_counts = (
+                self.t_env.sql_query(
+                    """
                 SELECT * FROM real_time_event_counts
                 ORDER BY window_start DESC
                 LIMIT 5
-            """).execute().collect()
+            """
+                )
+                .execute()
+                .collect()
+            )
 
             for row in sample_counts:
-                print(f"  {row.window_start} | {row.event_type} | {row.device_type} | "
-                      f"Events: {row.event_count} | Users: {row.unique_users} | Revenue: ${row.total_revenue:.2f}")
+                print(
+                    f"  {row.window_start} | {row.event_type} | {row.device_type} | "
+                    f"Events: {row.event_count} | Users: {row.unique_users} | Revenue: ${row.total_revenue:.2f}"
+                )
         except Exception as e:
             print(f"  Error getting event counts: {e}")
 
         # Sample session analytics
         print("\\n👤 Sample Session Analytics:")
         try:
-            sample_sessions = self.t_env.sql_query("""
+            sample_sessions = (
+                self.t_env.sql_query(
+                    """
                 SELECT * FROM user_session_analytics
                 ORDER BY session_start DESC
                 LIMIT 3
-            """).execute().collect()
+            """
+                )
+                .execute()
+                .collect()
+            )
 
             for row in sample_sessions:
-                duration = (row.session_end - row.session_start).total_seconds() if row.session_end and row.session_start else 0
-                print(f"  Session: {row.session_id[:8]}... | Duration: {duration:.1f}s | "
-                      f"Events: {row.event_count} | Revenue: ${row.session_revenue:.2f}")
+                duration = (
+                    (row.session_end - row.session_start).total_seconds()
+                    if row.session_end and row.session_start
+                    else 0
+                )
+                print(
+                    f"  Session: {row.session_id[:8]}... | Duration: {duration:.1f}s | "
+                    f"Events: {row.event_count} | Revenue: ${row.session_revenue:.2f}"
+                )
         except Exception as e:
             print(f"  Error getting session analytics: {e}")
 
         # Sample funnel metrics
         print("\\n🎯 Conversion Funnel (Latest):")
         try:
-            funnel_data = self.t_env.sql_query("""
+            funnel_data = (
+                self.t_env.sql_query(
+                    """
                 SELECT * FROM conversion_funnel
                 ORDER BY window_start DESC
                 LIMIT 1
-            """).execute().collect()
+            """
+                )
+                .execute()
+                .collect()
+            )
 
             for row in funnel_data:
                 if row.funnel_start > 0:
-                    view_to_cart = (row.cart_adders / row.funnel_start * 100)
-                    cart_to_purchase = (row.purchasers / NULLIF(row.cart_adders, 0) * 100)
-                    overall = (row.purchasers / row.funnel_start * 100)
+                    view_to_cart = row.cart_adders / row.funnel_start * 100
+                    cart_to_purchase = row.purchasers / NULLIF(row.cart_adders, 0) * 100
+                    overall = row.purchasers / row.funnel_start * 100
 
                     print(f"  Views: {row.unique_viewers}")
                     print(f"  → Add to Cart: {row.cart_adders} ({view_to_cart:.1f}%)")
@@ -410,7 +443,7 @@ class FlinkClickstreamProcessor:
         except Exception as e:
             print(f"  Error getting funnel metrics: {e}")
 
-        print("\\n" + "="*60)
+        print("\\n" + "=" * 60)
 
     def execute_processing(self):
         """
@@ -419,7 +452,7 @@ class FlinkClickstreamProcessor:
         Learning: Shows the complete flow from source to sink
         """
         print("🚀 Starting Flink Processing Pipeline")
-        print("="*50)
+        print("=" * 50)
 
         try:
             # Create source table
