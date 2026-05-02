@@ -5,8 +5,8 @@ description = "Simple real-time e-commerce analytics with Confluent Cloud and Fl
 requires-python = ">=3.11"
 dependencies = [
     "kafka-python==2.2.15",
-    "requests==2.32.5",
-    "python-dotenv==1.0.1",
+    "requests==2.33.0",
+    "python-dotenv==1.2.2",
     "pydantic==2.8.2",
     "pydantic-settings==2.8.1",
     "clickhouse-connect==0.6.21",
